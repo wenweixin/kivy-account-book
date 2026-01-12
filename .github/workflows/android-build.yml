@@ -15,7 +15,7 @@ jobs:
       - name: 拉取仓库代码
         uses: actions/checkout@v4
 
-      # 步骤2：安装系统依赖（完整版本，包含python-for-android所需依赖）
+      # 步骤2：安装系统依赖（完整版本）
       - name: 安装系统依赖
         run: |
           sudo apt update -y
@@ -42,16 +42,16 @@ jobs:
             libbz2-dev \
             libreadline-dev
 
-      # 步骤3：升级pip并安装核心Python依赖（手动安装python-for-android）
+      # 步骤3：升级pip并安装核心Python依赖
       - name: 安装Python依赖
         run: |
           python3 -m pip install --upgrade pip setuptools wheel
           pip3 install --upgrade buildozer
           pip3 install --upgrade cython==0.29.33
-          # 手动安装python-for-android（关键！解决目录缺失问题）
+          # 手动安装python-for-android
           pip3 install git+https://github.com/kivy/python-for-android.git@master
 
-      # 步骤4：缓存Buildozer依赖（加速SDK/NDK下载）
+      # 步骤4：缓存Buildozer依赖
       - name: 缓存Buildozer依赖
         uses: actions/cache@v3
         with:
@@ -63,41 +63,40 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-buildozer-
 
-      # 步骤5：初始化Buildozer并配置（先初始化，再修改配置）
+      # 步骤5：初始化并配置Buildozer.spec（核心修复：sed分隔符改为|）
       - name: 初始化并配置Buildozer.spec
         run: |
-          # 先初始化buildozer.spec（确保目录结构创建）
+          # 先初始化buildozer.spec
           buildozer init
           
-          # 批量修改配置（适配你的代码）
-          sed -i 's/title = My Application/title = 记账本/' buildozer.spec
-          sed -i 's/package.name = myapp/package.name = accountbook/' buildozer.spec
-          sed -i 's/package.domain = org.test/package.domain = org.example/' buildozer.spec
-          sed -i 's/source.include_exts = py,png,jpg,kv,atlas/source.include_exts = py,png,jpg,kv,atlas,ttf/' buildozer.spec
-          sed -i 's/# source.include_files = /source.include_files = simhei.ttf/' buildozer.spec
-          # 匹配你的代码中kivy.require('2.3.0')
-          sed -i 's/requirements = python3,kivy/requirements = python3,kivy==2.3.0/' buildozer.spec
-          # 修正NDK API版本（适配python-for-android）
-          sed -i 's/android.ndk = 25b/android.ndk = 25b/' buildozer.spec
-          sed -i 's/android.api = 33/android.api = 33/' buildozer.spec
-          sed -i 's/android.ndk_api = 21/android.ndk_api = 25/' buildozer.spec
-          sed -i 's/android.arch = armeabi-v7a/android.arch = arm64-v8a/' buildozer.spec
-          sed -i 's/# android.permissions = /android.permissions = WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE/' buildozer.spec
-          sed -i 's/android.logcat = false/android.logcat = false/' buildozer.spec
-          # 强制指定python-for-android路径（避免找不到）
-          sed -i 's/# p4a.source_dir = /p4a.source_dir = ~/.local/lib/python3.10/site-packages/pythonforandroid/' buildozer.spec
+          # 批量修改配置（分隔符改为|，避免和/冲突）
+          sed -i 's|title = My Application|title = 记账本|' buildozer.spec
+          sed -i 's|package.name = myapp|package.name = accountbook|' buildozer.spec
+          sed -i 's|package.domain = org.test|package.domain = org.example|' buildozer.spec
+          sed -i 's|source.include_exts = py,png,jpg,kv,atlas|source.include_exts = py,png,jpg,kv,atlas,ttf|' buildozer.spec
+          sed -i 's|# source.include_files = |source.include_files = simhei.ttf|' buildozer.spec
+          # 匹配代码中的kivy.require('2.3.0')
+          sed -i 's|requirements = python3,kivy|requirements = python3,kivy==2.3.0|' buildozer.spec
+          sed -i 's|android.ndk = 25b|android.ndk = 25b|' buildozer.spec
+          sed -i 's|android.api = 27|android.api = 33|' buildozer.spec
+          sed -i 's|android.ndk_api = 21|android.ndk_api = 25|' buildozer.spec
+          sed -i 's|android.arch = armeabi-v7a|android.arch = arm64-v8a|' buildozer.spec
+          sed -i 's|# android.permissions = |android.permissions = WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE|' buildozer.spec
+          sed -i 's|android.logcat = false|android.logcat = false|' buildozer.spec
+          # 修复p4a.source_dir的sed分隔符问题
+          sed -i 's|# p4a.source_dir = |p4a.source_dir = ~/.local/lib/python3.10/site-packages/pythonforandroid|' buildozer.spec
 
-      # 步骤6：修复目录权限（避免权限不足）
+      # 步骤6：修复目录权限
       - name: 修复目录权限
         run: |
           mkdir -p /home/runner/.buildozer/android/platform/python-for-android
           chmod -R 777 /home/runner/.buildozer
           chmod -R 777 ./.buildozer
 
-      # 步骤7：构建安卓APK（跳过clean，先build避免目录缺失）
+      # 步骤7：构建安卓APK
       - name: 构建安卓APK
         run: |
-          # 先直接build，而非clean（首次构建clean会触发目录缺失错误）
+          # 直接build，跳过clean（首次构建clean会报错）
           buildozer android debug
 
       # 步骤8：上传APK产物
