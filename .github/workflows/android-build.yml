@@ -10,7 +10,6 @@ on:
 jobs:
   build-android-apk:
     runs-on: ubuntu-22.04
-    # 明确指定工作目录（避免路径混乱）
     defaults:
       run:
         working-directory: ${{ github.workspace }}
@@ -20,7 +19,7 @@ jobs:
       - name: 拉取仓库代码
         uses: actions/checkout@v4
 
-      # 步骤2：安装系统依赖（完整版本）
+      # 步骤2：安装系统依赖（增加安卓SDK许可证工具）
       - name: 安装系统依赖
         run: |
           sudo apt update -y
@@ -45,7 +44,12 @@ jobs:
             build-essential \
             liblzma-dev \
             libbz2-dev \
-            libreadline-dev
+            libreadline-dev \
+            # 安卓SDK许可证工具
+            expect \
+            # 确保Aidl依赖
+            lib32z1-dev \
+            lib32stdc++6
 
       # 步骤3：升级pip并安装核心Python依赖
       - name: 安装Python依赖
@@ -64,18 +68,48 @@ jobs:
             ~/.buildozer
             ${{ github.workspace }}/.buildozer
             ~/.local/share/python-for-android
+            ~/Android/Sdk
           key: ${{ runner.os }}-buildozer-${{ hashFiles('**/buildozer.spec') }}
           restore-keys: |
             ${{ runner.os }}-buildozer-
 
-      # 步骤5：初始化Buildozer并配置（先确认目录，再修改配置）
+      # 步骤5：强制接受安卓SDK许可证（关键！）
+      - name: 接受安卓SDK所有许可证
+        run: |
+          # 创建许可证接受脚本
+          cat > accept-licenses.sh << EOF
+          #!/usr/bin/expect -f
+          set timeout 1800
+          spawn android update sdk --no-ui --all --filter build-tools-33.0.2,platform-tools,platforms;android-33,tools
+          expect {
+              "Accept? (y/N):" {
+                  send "y\r"
+                  exp_continue
+              }
+              eof
+          }
+          EOF
+          # 赋予执行权限并运行
+          chmod +x accept-licenses.sh
+          # 手动创建SDK目录
+          mkdir -p ~/Android/Sdk
+          # 设置ANDROID_HOME环境变量
+          export ANDROID_HOME=~/Android/Sdk
+          export PATH=\$ANDROID_HOME/tools:\$ANDROID_HOME/platform-tools:\$PATH
+          # 接受许可证
+          ./accept-licenses.sh || true
+          # 强制写入许可证文件（兜底）
+          mkdir -p ~/Android/Sdk/licenses
+          echo "8933bad161af4178b1185d1a37fbf41ea5269c55" > ~/Android/Sdk/licenses/android-sdk-license
+          echo "d975f751698a77b662f1254ddbeed3901e976f5a" > ~/Android/Sdk/licenses/android-sdk-preview-license
+
+      # 步骤6：初始化并配置Buildozer.spec（指定兼容的Build-Tools版本）
       - name: 初始化并配置Buildozer.spec
         run: |
-          # 先打印工作目录，确认路径（调试用）
           echo "当前工作目录：$(pwd)"
-          # 初始化buildozer.spec（强制生成目录）
+          # 初始化buildozer.spec
           buildozer init
-          # 校验.buildozer目录是否生成，未生成则手动创建
+          # 校验.buildozer目录
           if [ ! -d ".buildozer" ]; then
             echo "手动创建.buildozer目录"
             mkdir -p .buildozer/android/platform/python-for-android
@@ -84,51 +118,70 @@ jobs:
             mkdir -p bin
           fi
           
-          # 批量修改配置（分隔符为|，避免/冲突）
+          # 批量修改配置（指定兼容版本，避免36.1）
           sed -i 's|title = My Application|title = 记账本|' buildozer.spec
           sed -i 's|package.name = myapp|package.name = accountbook|' buildozer.spec
           sed -i 's|package.domain = org.test|package.domain = org.example|' buildozer.spec
           sed -i 's|source.include_exts = py,png,jpg,kv,atlas|source.include_exts = py,png,jpg,kv,atlas,ttf|' buildozer.spec
           sed -i 's|# source.include_files = |source.include_files = simhei.ttf|' buildozer.spec
           sed -i 's|requirements = python3,kivy|requirements = python3,kivy==2.3.0|' buildozer.spec
+          # 核心：指定兼容的Build-Tools版本
+          sed -i 's|# android.build_tools = 33.0.0|android.build_tools = 33.0.2|' buildozer.spec
           sed -i 's|android.ndk = 25b|android.ndk = 25b|' buildozer.spec
           sed -i 's|android.api = 27|android.api = 33|' buildozer.spec
           sed -i 's|android.ndk_api = 21|android.ndk_api = 25|' buildozer.spec
           sed -i 's|android.arch = armeabi-v7a|android.arch = arm64-v8a|' buildozer.spec
           sed -i 's|# android.permissions = |android.permissions = WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE|' buildozer.spec
           sed -i 's|android.logcat = false|android.logcat = false|' buildozer.spec
+          # 指定ANDROID_HOME路径
+          sed -i 's|# android.sdk_path = |android.sdk_path = ~/Android/Sdk|' buildozer.spec
 
-      # 步骤6：修复目录权限（先校验目录存在，再改权限）
+      # 步骤7：修复目录权限
       - name: 修复目录权限
         run: |
           # 校验并创建全局.buildozer目录
           if [ ! -d "/home/runner/.buildozer" ]; then
             mkdir -p /home/runner/.buildozer/android/platform/python-for-android
           fi
-          # 校验并创建本地.buildozer目录
-          if [ ! -d "${{ github.workspace }}/.buildozer" ]; then
-            mkdir -p ${{ github.workspace }}/.buildozer/android/platform/python-for-android
-          fi
-          # 修改权限（指定绝对路径，避免相对路径错误）
+          # 修改权限
           chmod -R 777 /home/runner/.buildozer
           chmod -R 777 ${{ github.workspace }}/.buildozer
           chmod -R 777 ${{ github.workspace }}/bin
+          chmod -R 777 ~/Android/Sdk
 
-      # 步骤7：构建安卓APK（增加调试信息，跳过clean）
+      # 步骤8：手动安装Build-Tools 33.0.2（兜底）
+      - name: 手动安装Build-Tools 33.0.2
+        run: |
+          export ANDROID_HOME=~/Android/Sdk
+          # 下载并解压Build-Tools 33.0.2
+          wget https://dl.google.com/android/repository/build-tools_r33.0.2-linux.zip -O build-tools.zip
+          unzip -q build-tools.zip -d $ANDROID_HOME/build-tools/
+          mv $ANDROID_HOME/build-tools/33.0.2 $ANDROID_HOME/build-tools/33.0.2-linux
+          # 确认Aidl存在
+          if [ -f "$ANDROID_HOME/build-tools/33.0.2-linux/aidl" ]; then
+            echo "✅ Aidl工具已找到"
+          else
+            echo "❌ Aidl工具缺失"
+            ls -la $ANDROID_HOME/build-tools/33.0.2-linux/
+          fi
+
+      # 步骤9：构建安卓APK
       - name: 构建安卓APK
         run: |
-          # 打印目录结构（调试用）
-          ls -la ${{ github.workspace }}
-          ls -la /home/runner/.buildozer
-          # 直接构建debug版APK
+          # 设置环境变量
+          export ANDROID_HOME=~/Android/Sdk
+          export PATH=\$ANDROID_HOME/tools:\$ANDROID_HOME/platform-tools:\$ANDROID_HOME/build-tools/33.0.2-linux:\$PATH
+          # 打印路径和工具信息
+          echo "PATH: \$PATH"
+          which aidl || echo "aidl not in path"
+          # 构建APK
           buildozer android debug
 
-      # 步骤8：上传APK产物（兼容不同路径）
+      # 步骤10：上传APK产物
       - name: 上传APK到GitHub产物
         uses: actions/upload-artifact@v4
         with:
           name: 记账本-安卓APK
-          # 兼容APK可能生成的路径
           path: |
             ${{ github.workspace }}/bin/accountbook-0.1-debug.apk
             ${{ github.workspace }}/.buildozer/android/app/build/outputs/apk/debug/app-debug.apk
