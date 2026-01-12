@@ -1,36 +1,31 @@
 # .github/workflows/android-build.yml
-# 工作流名称
 name: 安卓APK自动打包
 
-# 触发条件：当代码推送到main分支，或创建Pull Request时触发
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
 
-# 运行的作业
 jobs:
   build-android-apk:
-    # 运行环境：Ubuntu 22.04（Buildozer最佳兼容环境）
     runs-on: ubuntu-22.04
-    
-    # 作业步骤
     steps:
-      # 步骤1：拉取GitHub仓库代码到云端环境
+      # 步骤1：拉取仓库代码
       - name: 拉取仓库代码
         uses: actions/checkout@v4
 
-      # 步骤2：安装系统依赖（Buildozer需要的Linux库）
+      # 步骤2：安装系统依赖（完整版本，包含python-for-android所需依赖）
       - name: 安装系统依赖
         run: |
-          sudo apt update
+          sudo apt update -y
           sudo apt install -y \
             git \
             zip \
             unzip \
             openjdk-17-jdk \
             python3-pip \
+            python3-dev \
             autoconf \
             libtool \
             pkg-config \
@@ -40,60 +35,75 @@ jobs:
             libtinfo5 \
             cmake \
             libffi-dev \
-            libssl-dev
+            libssl-dev \
+            libsqlite3-dev \
+            build-essential \
+            liblzma-dev \
+            libbz2-dev \
+            libreadline-dev
 
-      # 步骤3：安装Python依赖（Buildozer、Kivy）
+      # 步骤3：升级pip并安装核心Python依赖（手动安装python-for-android）
       - name: 安装Python依赖
         run: |
-          python3 -m pip install --upgrade pip
+          python3 -m pip install --upgrade pip setuptools wheel
           pip3 install --upgrade buildozer
-          pip3 install --upgrade cython==0.29.33  # 适配Buildozer的Cython版本
+          pip3 install --upgrade cython==0.29.33
+          # 手动安装python-for-android（关键！解决目录缺失问题）
+          pip3 install git+https://github.com/kivy/python-for-android.git@master
 
-      # 步骤4：生成Buildozer配置文件并修改（自动适配云端环境）
-      - name: 配置Buildozer.spec
+      # 步骤4：缓存Buildozer依赖（加速SDK/NDK下载）
+      - name: 缓存Buildozer依赖
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.buildozer
+            ./.buildozer
+            ~/.local/share/python-for-android
+          key: ${{ runner.os }}-buildozer-${{ hashFiles('**/buildozer.spec') }}
+          restore-keys: |
+            ${{ runner.os }}-buildozer-
+
+      # 步骤5：初始化Buildozer并配置（先初始化，再修改配置）
+      - name: 初始化并配置Buildozer.spec
         run: |
-          # 生成基础配置文件
+          # 先初始化buildozer.spec（确保目录结构创建）
           buildozer init
           
-          # 批量修改配置（替换默认值，无需手动改）
-          # 应用名称
+          # 批量修改配置（适配你的代码）
           sed -i 's/title = My Application/title = 记账本/' buildozer.spec
-          # 包名（小写，无空格）
           sed -i 's/package.name = myapp/package.name = accountbook/' buildozer.spec
-          # 域名（随便填）
           sed -i 's/package.domain = org.test/package.domain = org.example/' buildozer.spec
-          # 包含的文件类型（必须加ttf字体）
           sed -i 's/source.include_exts = py,png,jpg,kv,atlas/source.include_exts = py,png,jpg,kv,atlas,ttf/' buildozer.spec
-          # 打包字体文件（关键！）
           sed -i 's/# source.include_files = /source.include_files = simhei.ttf/' buildozer.spec
-          # 指定Kivy版本（和代码适配的版本一致）
-          sed -i 's/requirements = python3,kivy/requirements = python3,kivy==2.3.1/' buildozer.spec
-          # 安卓API等级（适配大多数手机）
-          sed -i 's/android.api = 27/android.api = 33/' buildozer.spec
-          # NDK版本（兼容版本）
+          # 匹配你的代码中kivy.require('2.3.0')
+          sed -i 's/requirements = python3,kivy/requirements = python3,kivy==2.3.0/' buildozer.spec
+          # 修正NDK API版本（适配python-for-android）
           sed -i 's/android.ndk = 25b/android.ndk = 25b/' buildozer.spec
-          # 安卓架构（64位，主流手机）
+          sed -i 's/android.api = 33/android.api = 33/' buildozer.spec
+          sed -i 's/android.ndk_api = 21/android.ndk_api = 25/' buildozer.spec
           sed -i 's/android.arch = armeabi-v7a/android.arch = arm64-v8a/' buildozer.spec
-          # 申请存储权限（安卓保存数据需要）
           sed -i 's/# android.permissions = /android.permissions = WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE/' buildozer.spec
-          # 关闭安卓日志（减少输出）
           sed -i 's/android.logcat = false/android.logcat = false/' buildozer.spec
+          # 强制指定python-for-android路径（避免找不到）
+          sed -i 's/# p4a.source_dir = /p4a.source_dir = ~/.local/lib/python3.10/site-packages/pythonforandroid/' buildozer.spec
 
-      # 步骤5：开始打包APK（首次打包会下载SDK/NDK，耗时20-40分钟）
+      # 步骤6：修复目录权限（避免权限不足）
+      - name: 修复目录权限
+        run: |
+          mkdir -p /home/runner/.buildozer/android/platform/python-for-android
+          chmod -R 777 /home/runner/.buildozer
+          chmod -R 777 ./.buildozer
+
+      # 步骤7：构建安卓APK（跳过clean，先build避免目录缺失）
       - name: 构建安卓APK
         run: |
-          # 清理旧缓存
-          buildozer android clean
-          # 打包debug版APK（可直接安装）
+          # 先直接build，而非clean（首次构建clean会触发目录缺失错误）
           buildozer android debug
 
-      # 步骤6：上传APK作为构建产物（方便下载）
+      # 步骤8：上传APK产物
       - name: 上传APK到GitHub产物
         uses: actions/upload-artifact@v4
         with:
-          # 产物名称（自定义）
           name: 记账本-安卓APK
-          # APK文件路径（Buildozer打包后默认生成在bin目录）
           path: bin/accountbook-0.1-debug.apk
-          # 产物保留时间（默认90天，可选）
           retention-days: 90
