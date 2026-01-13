@@ -19,10 +19,11 @@ jobs:
       - name: 拉取仓库代码
         uses: actions/checkout@v4
 
-      # 步骤2：安装系统依赖
-      - name: 安装系统依赖
+      # 步骤2：安装系统依赖+强制配置Java 17为默认版本（核心修复）
+      - name: 安装系统依赖并配置Java 17
         run: |
           sudo apt update -y
+          # 安装所有依赖（含openjdk-17-jdk）
           sudo apt install -y \
             git \
             zip \
@@ -48,6 +49,20 @@ jobs:
             expect \
             lib32z1-dev \
             lib32stdc++6
+          
+          # 强制将Java 17设为系统默认版本
+          sudo update-alternatives --install /usr/bin/java java /usr/lib/jvm/java-17-openjdk-amd64/bin/java 1
+          sudo update-alternatives --install /usr/bin/javac javac /usr/lib/jvm/java-17-openjdk-amd64/bin/javac 1
+          sudo update-alternatives --set java /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+          sudo update-alternatives --set javac /usr/lib/jvm/java-17-openjdk-amd64/bin/javac
+          
+          # 验证Java版本（必须显示17.x.x）
+          java -version
+          javac -version
+          
+          # 配置JAVA_HOME环境变量（全局生效）
+          echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> $GITHUB_ENV
+          echo "PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH" >> $GITHUB_ENV
 
       # 步骤3：升级pip并安装核心Python依赖
       - name: 安装Python依赖
@@ -57,9 +72,13 @@ jobs:
           pip3 install --upgrade cython==0.29.33
           pip3 install git+https://github.com/kivy/python-for-android.git@master
 
-      # 步骤4：完整配置Buildozer专属SDK（修复Command-line Tools目录）
+      # 步骤4：完整配置Buildozer专属SDK（适配Java 17）
       - name: 配置完整Android SDK环境
         run: |
+          # 加载Java 17环境变量
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+          export PATH=$JAVA_HOME/bin:$PATH
+          
           # Buildozer默认SDK根路径
           BUILDOZER_SDK_PATH="/home/runner/.buildozer/android/platform/android-sdk"
           mkdir -p $BUILDOZER_SDK_PATH
@@ -84,27 +103,23 @@ jobs:
           echo "d975f751698a77b662f1254ddbeed3901e976f5a" > $BUILDOZER_SDK_PATH/licenses/android-sdk-preview-license
           echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > $BUILDOZER_SDK_PATH/licenses/androidsdk-license
           
-          # 3. 配置环境变量，让sdkmanager生效
-          export PATH=$BUILDOZER_SDK_PATH/cmdline-tools/latest/bin:$PATH
+          # 3. 配置环境变量，让sdkmanager生效（绑定Java 17）
           export ANDROID_HOME=$BUILDOZER_SDK_PATH
           export ANDROID_SDK_ROOT=$BUILDOZER_SDK_PATH
+          export PATH=$BUILDOZER_SDK_PATH/cmdline-tools/latest/bin:$PATH
           
-          # 验证sdkmanager是否存在
-          if [ ! -f "$BUILDOZER_SDK_PATH/cmdline-tools/latest/bin/sdkmanager" ]; then
-            echo "❌ sdkmanager安装失败，cmdline-tools目录内容："
-            ls -la $BUILDOZER_SDK_PATH/cmdline-tools/latest/
-            exit 1
-          fi
-          echo "✅ sdkmanager已找到：$BUILDOZER_SDK_PATH/cmdline-tools/latest/bin/sdkmanager"
+          # 验证sdkmanager是否能正常启动（Java 17环境）
+          echo "🔍 验证sdkmanager版本（Java 17环境）："
+          sdkmanager --version || (echo "❌ sdkmanager启动失败，检查Java版本" && exit 1)
           
           # 4. 安装SDK Platform Tools（Buildozer必需）
-          yes | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "platform-tools" --verbose
+          sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "platform-tools" --verbose
           
           # 5. 安装Build-Tools 33.0.2（Buildozer指定版本）
-          yes | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "build-tools;33.0.2" --verbose
+          sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "build-tools;33.0.2" --verbose
           
           # 6. 安装Android 33 SDK Platform（可选但建议）
-          yes | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "platforms;android-33" --verbose
+          sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "platforms;android-33" --verbose
           
           # 7. 确认aidl可用
           AIDL_PATH=$BUILDOZER_SDK_PATH/build-tools/33.0.2/aidl
@@ -145,13 +160,18 @@ jobs:
       # 步骤6：构建安卓APK
       - name: 构建安卓APK
         run: |
-          # 配置环境变量，确保所有工具路径生效
+          # 配置环境变量，确保所有工具路径生效（绑定Java 17）
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
           export ANDROID_HOME="/home/runner/.buildozer/android/platform/android-sdk"
           export ANDROID_SDK_ROOT=$ANDROID_HOME
           export ANDROIDNDK="/home/runner/.buildozer/android/platform/android-ndk-r25b"
           export ANDROIDAPI="33"
           export ANDROID_BUILD_TOOLS="33.0.2"
-          export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/33.0.2:$PATH
+          export PATH=$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/33.0.2:$PATH
+          
+          # 验证Java和sdkmanager版本
+          java -version
+          sdkmanager --version
           
           # 构建APK
           buildozer android debug
