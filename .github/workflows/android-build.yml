@@ -11,7 +11,7 @@ jobs:
   build-android-apk:
     runs-on: ubuntu-22.04
     defaults:
-      run:
+      run: |
         working-directory: ${{ github.workspace }}
 
     steps:
@@ -72,7 +72,7 @@ jobs:
           pip3 install --upgrade cython==0.29.33
           pip3 install git+https://github.com/kivy/python-for-android.git@master
 
-      # 步骤4：完整配置Buildozer专属SDK（自动接受许可证+兜底安装）
+      # 步骤4：完整配置Buildozer专属SDK（创建软链接适配旧路径）
       - name: 配置完整Android SDK环境
         run: |
           # 加载Java 17环境变量
@@ -97,20 +97,31 @@ jobs:
           cp -r tmp_cmdline_tools/*/* $BUILDOZER_SDK_PATH/cmdline-tools/latest/ || cp -r tmp_cmdline_tools/* $BUILDOZER_SDK_PATH/cmdline-tools/latest/
           rm -rf tmp_cmdline_tools cmdline-tools.zip
           
-          # 2. 配置环境变量，让sdkmanager生效
+          # 2. 核心修复：创建软链接，将新版sdkmanager映射到Buildozer查找的旧路径
+          mkdir -p $BUILDOZER_SDK_PATH/tools/bin
+          ln -s $BUILDOZER_SDK_PATH/cmdline-tools/latest/bin/sdkmanager $BUILDOZER_SDK_PATH/tools/bin/sdkmanager
+          ln -s $BUILDOZER_SDK_PATH/cmdline-tools/latest/bin/avdmanager $BUILDOZER_SDK_PATH/tools/bin/avdmanager
+          # 验证软链接是否创建成功
+          ls -la $BUILDOZER_SDK_PATH/tools/bin/
+          if [ ! -f "$BUILDOZER_SDK_PATH/tools/bin/sdkmanager" ]; then
+            echo "❌ sdkmanager软链接创建失败"
+            exit 1
+          fi
+          
+          # 3. 配置环境变量，让sdkmanager生效
           export ANDROID_HOME=$BUILDOZER_SDK_PATH
           export ANDROID_SDK_ROOT=$BUILDOZER_SDK_PATH
-          export PATH=$BUILDOZER_SDK_PATH/cmdline-tools/latest/bin:$PATH
+          export PATH=$BUILDOZER_SDK_PATH/cmdline-tools/latest/bin:$BUILDOZER_SDK_PATH/tools/bin:$PATH
           
-          # 3. 自动接受所有SDK许可证（核心修复：替代静态文件）
+          # 4. 自动接受所有SDK许可证
           echo "✅ 自动接受所有Android SDK许可证..."
           echo y | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH --licenses || true
           
-          # 4. 安装SDK Platform Tools（Buildozer必需）
+          # 5. 安装SDK Platform Tools（Buildozer必需）
           echo "✅ 安装platform-tools..."
           echo y | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "platform-tools" --verbose
           
-          # 5. 安装Build-Tools 33.0.2（优先sdkmanager，失败则手动下载）
+          # 6. 安装Build-Tools 33.0.2（优先sdkmanager，失败则手动下载）
           echo "✅ 安装build-tools;33.0.2..."
           if ! echo y | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "build-tools;33.0.2" --verbose; then
             echo "⚠️ sdkmanager安装Build-Tools失败，手动下载兜底..."
@@ -124,11 +135,11 @@ jobs:
             fi
           fi
           
-          # 6. 尝试安装Android 33 SDK Platform（可选，失败不影响）
+          # 7. 尝试安装Android 33 SDK Platform（可选，失败不影响）
           echo "✅ 安装platforms;android-33..."
           echo y | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "platforms;android-33" --verbose || echo "⚠️ platforms;android-33安装失败，继续构建..."
           
-          # 7. 验证Build-Tools和Aidl是否存在
+          # 8. 验证Build-Tools和Aidl是否存在
           echo "✅ 验证Build-Tools和Aidl..."
           if [ ! -d "$BUILDOZER_SDK_PATH/build-tools/33.0.2" ]; then
             echo "❌ Build-Tools 33.0.2目录不存在，当前build-tools目录："
@@ -181,7 +192,7 @@ jobs:
           export ANDROIDNDK="/home/runner/.buildozer/android/platform/android-ndk-r25b"
           export ANDROIDAPI="33"
           export ANDROID_BUILD_TOOLS="33.0.2"
-          export PATH=$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/33.0.2:$PATH
+          export PATH=$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/tools/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/33.0.2:$PATH
           
           # 验证Java和sdkmanager版本
           java -version
