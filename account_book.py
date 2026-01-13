@@ -22,7 +22,7 @@ os.environ['KIVY_TEXT'] = 'utf8'
 Config.set('kivy', 'default_encoding', 'utf-8')
 
 
-# 2. 注册中文字体（自动适配Windows/Linux系统）
+# 2. 注册中文字体（自动适配Windows/Linux/安卓）
 def register_chinese_font():
     """注册中文字体（优先本地simhei.ttf，兼容Windows/Linux/安卓）"""
     # 1. 优先读取代码目录下的simhei.ttf（关键！适配打包场景）
@@ -70,11 +70,23 @@ def register_chinese_font():
 register_chinese_font()
 
 # ======== 适配修改：指定兼容的Kivy版本 ========
-kivy.require('2.3.0')  # 改为2.3.0（支持Python 3.12）
+kivy.require('2.1.0')  # 改为2.1.0（和打包时安装的版本一致）
 Window.softinput_mode = "below_target"
 
-# 数据存储路径
-DATA_FILE = "advanced_account_records.json"
+# ======== 核心适配：安卓数据存储路径（关键修改） ========
+def get_data_file_path():
+    """适配安卓/PC的文件存储路径"""
+    if 'android' in sys.modules:  # 检测是否在安卓环境运行
+        from android.storage import app_storage_path
+        # 安卓：使用应用私有存储目录（可读写）
+        data_dir = app_storage_path()
+        return os.path.join(data_dir, "advanced_account_records.json")
+    else:
+        # PC：使用当前目录
+        return "advanced_account_records.json"
+
+# 数据存储路径（适配安卓）
+DATA_FILE = get_data_file_path()
 # 支出分类选项
 EXPENSE_CATEGORIES = ["购物", "吃饭", "房租", "交通", "礼物", "借钱"]
 # 时间筛选类型
@@ -159,7 +171,7 @@ def calculate_total(records: List[Dict]) -> float:
 
 # ==================== 主界面布局（移除错误的input_encoding参数） ====================
 class AdvancedAccountBookLayout(BoxLayout):
-    def __init__(self, **kwargs):
+    def __init__(self,** kwargs):
         super().__init__(**kwargs)
         self.orientation = "vertical"
         self.padding = 10
@@ -355,4 +367,5 @@ class AdvancedAccountBookApp(App):
 if __name__ == "__main__":
     # 最终确保编码正确
     sys.stdout.reconfigure(encoding='utf-8')
+
     AdvancedAccountBookApp().run()
