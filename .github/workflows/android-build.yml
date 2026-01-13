@@ -11,7 +11,7 @@ jobs:
   build-android-apk:
     runs-on: ubuntu-22.04
     defaults:
-      run: |
+      run:
         working-directory: ${{ github.workspace }}
 
     steps:
