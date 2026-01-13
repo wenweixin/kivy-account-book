@@ -19,7 +19,7 @@ jobs:
       - name: 拉取仓库代码
         uses: actions/checkout@v4
 
-      # 步骤2：安装系统依赖（修复expect安装，移除注释干扰）
+      # 步骤2：安装系统依赖
       - name: 安装系统依赖
         run: |
           sudo apt update -y
@@ -55,7 +55,6 @@ jobs:
           python3 -m pip install --upgrade pip setuptools wheel
           pip3 install --upgrade buildozer
           pip3 install --upgrade cython==0.29.33
-          # 手动安装python-for-android
           pip3 install git+https://github.com/kivy/python-for-android.git@master
 
       # 步骤4：缓存Buildozer依赖
@@ -71,16 +70,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-buildozer-
 
-      # 步骤5：手动写入安卓SDK许可证（无需expect，更稳定）
+      # 步骤5：配置安卓SDK许可证
       - name: 配置安卓SDK许可证
         run: |
-          # 创建SDK许可证目录
           mkdir -p ~/Android/Sdk/licenses
-          # 写入通用许可证文件（覆盖所有SDK版本）
           echo "8933bad161af4178b1185d1a37fbf41ea5269c55" > ~/Android/Sdk/licenses/android-sdk-license
           echo "d975f751698a77b662f1254ddbeed3901e976f5a" > ~/Android/Sdk/licenses/android-sdk-preview-license
           echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > ~/Android/Sdk/licenses/androidsdk-license
-          # 设置环境变量
           export ANDROID_HOME=~/Android/Sdk
           export PATH=$ANDROID_HOME/tools:$ANDROID_HOME/platform-tools:$PATH
 
@@ -88,9 +84,7 @@ jobs:
       - name: 初始化并配置Buildozer.spec
         run: |
           echo "当前工作目录：$(pwd)"
-          # 初始化buildozer.spec
           buildozer init
-          # 校验并创建.buildozer目录
           if [ ! -d ".buildozer" ]; then
             echo "手动创建.buildozer目录"
             mkdir -p .buildozer/android/platform/python-for-android
@@ -106,7 +100,6 @@ jobs:
           sed -i 's|source.include_exts = py,png,jpg,kv,atlas|source.include_exts = py,png,jpg,kv,atlas,ttf|' buildozer.spec
           sed -i 's|# source.include_files = |source.include_files = simhei.ttf|' buildozer.spec
           sed -i 's|requirements = python3,kivy|requirements = python3,kivy==2.3.0|' buildozer.spec
-          # 指定兼容的Build-Tools版本
           sed -i 's|# android.build_tools = 33.0.0|android.build_tools = 33.0.2|' buildozer.spec
           sed -i 's|android.ndk = 25b|android.ndk = 25b|' buildozer.spec
           sed -i 's|android.api = 27|android.api = 33|' buildozer.spec
@@ -114,50 +107,62 @@ jobs:
           sed -i 's|android.arch = armeabi-v7a|android.arch = arm64-v8a|' buildozer.spec
           sed -i 's|# android.permissions = |android.permissions = WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE|' buildozer.spec
           sed -i 's|android.logcat = false|android.logcat = false|' buildozer.spec
-          # 指定ANDROID_HOME路径
           sed -i 's|# android.sdk_path = |android.sdk_path = ~/Android/Sdk|' buildozer.spec
 
       # 步骤7：修复目录权限
       - name: 修复目录权限
         run: |
-          # 校验并创建全局.buildozer目录
           if [ ! -d "/home/runner/.buildozer" ]; then
             mkdir -p /home/runner/.buildozer/android/platform/python-for-android
           fi
-          # 修改权限
           chmod -R 777 /home/runner/.buildozer
           chmod -R 777 ${{ github.workspace }}/.buildozer
           chmod -R 777 ${{ github.workspace }}/bin
           chmod -R 777 ~/Android/Sdk
 
-      # 步骤8：手动安装Build-Tools 33.0.2
+      # 步骤8：手动安装Build-Tools 33.0.2（核心修复：动态匹配目录名）
       - name: 手动安装Build-Tools 33.0.2
         run: |
           export ANDROID_HOME=~/Android/Sdk
-          # 创建Build-Tools目录
+          # 创建Build-Tools目录（确保存在）
           mkdir -p $ANDROID_HOME/build-tools
-          # 下载并解压Build-Tools（国内镜像，提升速度）
+          # 下载Build-Tools（优先清华镜像）
           wget https://mirrors.tuna.tsinghua.edu.cn/android/repository/build-tools_r33.0.2-linux.zip -O build-tools.zip || wget https://dl.google.com/android/repository/build-tools_r33.0.2-linux.zip -O build-tools.zip
+          
+          # 解压到Build-Tools目录（保留原目录名）
           unzip -q build-tools.zip -d $ANDROID_HOME/build-tools/
-          mv $ANDROID_HOME/build-tools/33.0.2 $ANDROID_HOME/build-tools/33.0.2-linux
-          # 确认Aidl存在
-          if [ -f "$ANDROID_HOME/build-tools/33.0.2-linux/aidl" ]; then
-            echo "✅ Aidl工具已找到"
+          
+          # 查看解压后的实际目录名（关键！动态获取）
+          echo "解压后的Build-Tools目录列表："
+          ls -la $ANDROID_HOME/build-tools/
+          
+          # 动态获取解压后的目录名（匹配33.0.2开头的目录）
+          BUILD_TOOLS_DIR=$(ls $ANDROID_HOME/build-tools/ | grep "^33.0.2")
+          if [ -z "$BUILD_TOOLS_DIR" ]; then
+            echo "❌ 未找到33.0.2开头的Build-Tools目录"
+            exit 1
+          fi
+          
+          # 重命名为33.0.2-linux（适配Buildozer查找路径）
+          mv $ANDROID_HOME/build-tools/$BUILD_TOOLS_DIR $ANDROID_HOME/build-tools/33.0.2-linux
+          
+          # 确认Aidl工具存在
+          AIDL_PATH=$ANDROID_HOME/build-tools/33.0.2-linux/aidl
+          if [ -f "$AIDL_PATH" ]; then
+            echo "✅ Aidl工具已找到：$AIDL_PATH"
           else
-            echo "❌ Aidl工具缺失"
+            echo "❌ Aidl工具缺失，目录内容："
             ls -la $ANDROID_HOME/build-tools/33.0.2-linux/
+            exit 1
           fi
 
       # 步骤9：构建安卓APK
       - name: 构建安卓APK
         run: |
-          # 设置环境变量
           export ANDROID_HOME=~/Android/Sdk
           export PATH=$ANDROID_HOME/tools:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/33.0.2-linux:$PATH
-          # 打印路径和工具信息
           echo "PATH: $PATH"
           which aidl || echo "aidl not in path"
-          # 构建APK
           buildozer android debug
 
       # 步骤10：上传APK产物
