@@ -57,35 +57,50 @@ jobs:
           pip3 install --upgrade cython==0.29.33
           pip3 install git+https://github.com/kivy/python-for-android.git@master
 
-      # 步骤4：配置Buildozer默认SDK路径+许可证（核心修复）
-      - name: 配置Buildozer专属SDK和许可证
+      # 步骤4：完整配置Buildozer专属SDK（含Command-line Tools+Build-Tools+许可证）
+      - name: 配置完整Android SDK环境
         run: |
-          # Buildozer默认的SDK根路径
+          # Buildozer默认SDK根路径
           BUILDOZER_SDK_PATH="/home/runner/.buildozer/android/platform/android-sdk"
-          mkdir -p $BUILDOZER_SDK_PATH/licenses
+          mkdir -p $BUILDOZER_SDK_PATH
           
-          # 写入许可证（覆盖Buildozer自动下载时的校验）
+          # 1. 安装SDK Command-line Tools（含sdkmanager，适配新版路径）
+          CMDLINE_TOOLS_URL="https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+          wget --no-check-certificate $CMDLINE_TOOLS_URL -O cmdline-tools.zip
+          # 新版要求cmdline-tools放在cmdline-tools/latest目录下
+          mkdir -p $BUILDOZER_SDK_PATH/cmdline-tools/latest
+          unzip -q -o cmdline-tools.zip -d $BUILDOZER_SDK_PATH/cmdline-tools/
+          # 解压后默认是cmdline-tools/tools，移动到latest
+          mv $BUILDOZER_SDK_PATH/cmdline-tools/tools/* $BUILDOZER_SDK_PATH/cmdline-tools/latest/
+          rm -rf $BUILDOZER_SDK_PATH/cmdline-tools/tools
+          
+          # 2. 写入SDK许可证（跳过交互）
+          mkdir -p $BUILDOZER_SDK_PATH/licenses
           echo "8933bad161af4178b1185d1a37fbf41ea5269c55" > $BUILDOZER_SDK_PATH/licenses/android-sdk-license
           echo "d975f751698a77b662f1254ddbeed3901e976f5a" > $BUILDOZER_SDK_PATH/licenses/android-sdk-preview-license
           echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > $BUILDOZER_SDK_PATH/licenses/androidsdk-license
           
-          # 创建Build-Tools目录
-          mkdir -p $BUILDOZER_SDK_PATH/build-tools
+          # 3. 配置环境变量，让sdkmanager生效
+          export PATH=$BUILDOZER_SDK_PATH/cmdline-tools/latest/bin:$PATH
+          export ANDROID_HOME=$BUILDOZER_SDK_PATH
+          export ANDROID_SDK_ROOT=$BUILDOZER_SDK_PATH
           
-          # 下载并安装Build-Tools 33.0.2到Buildozer默认路径
-          wget --no-check-certificate https://mirrors.tuna.tsinghua.edu.cn/android/repository/build-tools_r33.0.2-linux.zip -O build-tools.zip || wget --no-check-certificate https://dl.google.com/android/repository/build-tools_r33.0.2-linux.zip -O build-tools.zip
-          unzip -q -o build-tools.zip -d $BUILDOZER_SDK_PATH/build-tools/
+          # 4. 安装SDK Platform Tools（Buildozer必需）
+          yes | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "platform-tools" --verbose
           
-          # 适配android-13目录名，重命名为33.0.2
-          if [ -d "$BUILDOZER_SDK_PATH/build-tools/android-13" ]; then
-            mv $BUILDOZER_SDK_PATH/build-tools/android-13 $BUILDOZER_SDK_PATH/build-tools/33.0.2
-          fi
+          # 5. 安装Build-Tools 33.0.2（Buildozer指定版本）
+          yes | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "build-tools;33.0.2" --verbose
           
-          # 确认Aidl存在
-          if [ -f "$BUILDOZER_SDK_PATH/build-tools/33.0.2/aidl" ]; then
-            echo "✅ Aidl已安装到Buildozer默认路径：$BUILDOZER_SDK_PATH/build-tools/33.0.2/aidl"
+          # 6. 安装Android 33 SDK Platform（可选但建议）
+          yes | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "platforms;android-33" --verbose
+          
+          # 7. 确认sdkmanager和aidl可用
+          echo "✅ sdkmanager路径：$(which sdkmanager)"
+          AIDL_PATH=$BUILDOZER_SDK_PATH/build-tools/33.0.2/aidl
+          if [ -f "$AIDL_PATH" ]; then
+            echo "✅ Aidl工具已找到：$AIDL_PATH"
           else
-            echo "❌ Aidl安装失败，目录内容："
+            echo "❌ Aidl工具缺失，Build-Tools目录："
             ls -la $BUILDOZER_SDK_PATH/build-tools/
             exit 1
           fi
@@ -93,13 +108,12 @@ jobs:
           # 赋予全权限
           chmod -R 777 /home/runner/.buildozer
 
-      # 步骤5：初始化并配置Buildozer.spec（强制指定版本和路径）
+      # 步骤5：初始化并配置Buildozer.spec（强制指定版本）
       - name: 初始化并配置Buildozer.spec
         run: |
-          echo "当前工作目录：$(pwd)"
           buildozer init
           
-          # 批量修改配置，核心是强制指定Build-Tools和SDK路径
+          # 批量修改配置
           sed -i 's|title = My Application|title = 记账本|' buildozer.spec
           sed -i 's|package.name = myapp|package.name = accountbook|' buildozer.spec
           sed -i 's|package.domain = org.test|package.domain = org.example|' buildozer.spec
@@ -107,7 +121,7 @@ jobs:
           sed -i 's|# source.include_files = |source.include_files = simhei.ttf|' buildozer.spec
           sed -i 's|requirements = python3,kivy|requirements = python3,kivy==2.3.0|' buildozer.spec
           
-          # 关键：强制指定Build-Tools版本为33.0.2，禁止下载36.1
+          # 强制指定版本
           sed -i 's|# android.build_tools = 33.0.0|android.build_tools = 33.0.2|' buildozer.spec
           sed -i 's|android.ndk = 25b|android.ndk = 25b|' buildozer.spec
           sed -i 's|android.api = 27|android.api = 33|' buildozer.spec
@@ -115,18 +129,18 @@ jobs:
           sed -i 's|android.arch = armeabi-v7a|android.arch = arm64-v8a|' buildozer.spec
           sed -i 's|# android.permissions = |android.permissions = WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE|' buildozer.spec
           sed -i 's|android.logcat = false|android.logcat = false|' buildozer.spec
-          
-          # 强制指定Buildozer使用我们配置的SDK路径
           sed -i 's|# android.sdk_path = |android.sdk_path = /home/runner/.buildozer/android/platform/android-sdk|' buildozer.spec
 
-      # 步骤6：构建安卓APK（禁用自动SDK下载）
+      # 步骤6：构建安卓APK
       - name: 构建安卓APK
         run: |
-          # 禁用Buildozer自动下载SDK/NDK
-          export ANDROIDSDK="/home/runner/.buildozer/android/platform/android-sdk"
+          # 配置环境变量，确保所有工具路径生效
+          export ANDROID_HOME="/home/runner/.buildozer/android/platform/android-sdk"
+          export ANDROID_SDK_ROOT=$ANDROID_HOME
           export ANDROIDNDK="/home/runner/.buildozer/android/platform/android-ndk-r25b"
           export ANDROIDAPI="33"
           export ANDROID_BUILD_TOOLS="33.0.2"
+          export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/33.0.2:$PATH
           
           # 构建APK
           buildozer android debug
