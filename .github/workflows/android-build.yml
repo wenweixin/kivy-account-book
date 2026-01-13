@@ -57,22 +57,26 @@ jobs:
           pip3 install --upgrade cython==0.29.33
           pip3 install git+https://github.com/kivy/python-for-android.git@master
 
-      # 步骤4：完整配置Buildozer专属SDK（含Command-line Tools+Build-Tools+许可证）
+      # 步骤4：完整配置Buildozer专属SDK（修复Command-line Tools目录）
       - name: 配置完整Android SDK环境
         run: |
           # Buildozer默认SDK根路径
           BUILDOZER_SDK_PATH="/home/runner/.buildozer/android/platform/android-sdk"
           mkdir -p $BUILDOZER_SDK_PATH
           
-          # 1. 安装SDK Command-line Tools（含sdkmanager，适配新版路径）
+          # 1. 安装SDK Command-line Tools（适配新版目录结构）
           CMDLINE_TOOLS_URL="https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
           wget --no-check-certificate $CMDLINE_TOOLS_URL -O cmdline-tools.zip
-          # 新版要求cmdline-tools放在cmdline-tools/latest目录下
+          
+          # 创建临时解压目录
+          mkdir -p tmp_cmdline_tools
+          unzip -q -o cmdline-tools.zip -d tmp_cmdline_tools/
+          
+          # 新版Command-line Tools解压后根目录是cmdline-tools，需移动到latest
           mkdir -p $BUILDOZER_SDK_PATH/cmdline-tools/latest
-          unzip -q -o cmdline-tools.zip -d $BUILDOZER_SDK_PATH/cmdline-tools/
-          # 解压后默认是cmdline-tools/tools，移动到latest
-          mv $BUILDOZER_SDK_PATH/cmdline-tools/tools/* $BUILDOZER_SDK_PATH/cmdline-tools/latest/
-          rm -rf $BUILDOZER_SDK_PATH/cmdline-tools/tools
+          # 移动解压后的所有文件到latest目录（适配不同解压结构）
+          cp -r tmp_cmdline_tools/*/* $BUILDOZER_SDK_PATH/cmdline-tools/latest/ || cp -r tmp_cmdline_tools/* $BUILDOZER_SDK_PATH/cmdline-tools/latest/
+          rm -rf tmp_cmdline_tools cmdline-tools.zip
           
           # 2. 写入SDK许可证（跳过交互）
           mkdir -p $BUILDOZER_SDK_PATH/licenses
@@ -85,6 +89,14 @@ jobs:
           export ANDROID_HOME=$BUILDOZER_SDK_PATH
           export ANDROID_SDK_ROOT=$BUILDOZER_SDK_PATH
           
+          # 验证sdkmanager是否存在
+          if [ ! -f "$BUILDOZER_SDK_PATH/cmdline-tools/latest/bin/sdkmanager" ]; then
+            echo "❌ sdkmanager安装失败，cmdline-tools目录内容："
+            ls -la $BUILDOZER_SDK_PATH/cmdline-tools/latest/
+            exit 1
+          fi
+          echo "✅ sdkmanager已找到：$BUILDOZER_SDK_PATH/cmdline-tools/latest/bin/sdkmanager"
+          
           # 4. 安装SDK Platform Tools（Buildozer必需）
           yes | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "platform-tools" --verbose
           
@@ -94,8 +106,7 @@ jobs:
           # 6. 安装Android 33 SDK Platform（可选但建议）
           yes | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "platforms;android-33" --verbose
           
-          # 7. 确认sdkmanager和aidl可用
-          echo "✅ sdkmanager路径：$(which sdkmanager)"
+          # 7. 确认aidl可用
           AIDL_PATH=$BUILDOZER_SDK_PATH/build-tools/33.0.2/aidl
           if [ -f "$AIDL_PATH" ]; then
             echo "✅ Aidl工具已找到：$AIDL_PATH"
