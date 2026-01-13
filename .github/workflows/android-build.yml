@@ -1,11 +1,11 @@
 # .github/workflows/android-build.yml
 name: 安卓APK自动打包
 
+# 触发条件：push到main分支 或 手动触发
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  workflow_dispatch:  # 允许手动触发打包
 
 jobs:
   build-android-apk:
@@ -13,8 +13,9 @@ jobs:
     defaults:
       run:
         working-directory: ${{ github.workspace }}
-    timeout-minutes: 90
+    timeout-minutes: 90  # 延长超时时间（打包Kivy应用需要较多时间）
     env:
+      # 核心环境变量配置
       BUILDOZER_LOG_LEVEL: 2
       ANDROIDNDK: /home/runner/.buildozer/android/platform/android-ndk-r21e
       ANDROIDSDK: /home/runner/.buildozer/android/platform/android-sdk
@@ -22,60 +23,92 @@ jobs:
       ANDROID_BUILD_TOOLS: 30.0.3
       JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
       ANDROID_NDK_ROOT: /home/runner/.buildozer/android/platform/android-ndk-r21e
-      JAVA_OPTS: "-Xmx4096m -Xms2048m"
+      JAVA_OPTS: "-Xmx4096m -Xms2048m"  # 加大Java内存，避免OOM
       GRADLE_OPTS: "-Xmx4096m -Xms2048m"
 
     steps:
+      # 步骤1：拉取仓库代码
       - name: 拉取仓库代码
         uses: actions/checkout@v4
 
+      # 步骤2：安装系统依赖+配置Java 17（Buildozer要求Java 8/11/17）
       - name: 安装系统依赖并配置Java 17
         run: |
           sudo apt update -y
+          # 安装打包所需的系统依赖
           sudo apt install -y git zip unzip openjdk-17-jdk python3-pip python3-dev autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev libsqlite3-dev build-essential liblzma-dev libbz2-dev libreadline-dev expect lib32z1-dev lib32stdc++6 libjpeg-dev libltdl-dev
           
+          # 配置Java 17为默认版本
           sudo update-alternatives --install /usr/bin/java java /usr/lib/jvm/java-17-openjdk-amd64/bin/java 1
           sudo update-alternatives --install /usr/bin/javac javac /usr/lib/jvm/java-17-openjdk-amd64/bin/javac 1
           sudo update-alternatives --set java /usr/lib/jvm/java-17-openjdk-amd64/bin/java
           sudo update-alternatives --set javac /usr/lib/jvm/java-17-openjdk-amd64/bin/javac
           
+          # 验证Java版本
           java -version
           javac -version
           echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> $GITHUB_ENV
           echo "PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH" >> $GITHUB_ENV
 
-      - name: 安装Python依赖（关键：降级Cython到兼容版本）
+      # 步骤3：安装Python依赖（指定兼容版本，避免冲突）
+      - name: 安装Python依赖（降级Cython适配Kivy）
         run: |
           python3 -m pip install --upgrade pip setuptools wheel
           pip install --upgrade pip
-          # 降级Cython到0.29.36（与Kivy 2.1.0完全兼容）
+          # 安装指定版本的依赖（避免版本冲突）
           pip3 install --upgrade buildozer cython==0.29.36 kivy==2.1.0
           pip3 install git+https://github.com/kivy/python-for-android.git@master
           pip3 install pyjnius==1.6.1 plyer==2.1.0
 
-      - name: 检查代码语法和资源文件
+      # 步骤4：检查核心文件（自动创建main.py，避免入口缺失）
+      - name: 检查并修复核心文件
         run: |
-          echo "✅ 检查Python代码语法..."
+          echo "✅ 检查account_book.py语法..."
           python3 -m py_compile account_book.py || (echo "❌ account_book.py语法错误" && exit 1)
           
-          echo "✅ 检查资源文件..."
+          echo "✅ 检查/创建main.py入口文件..."
+          # 如果没有main.py，自动创建（适配你的应用结构）
+          if [ ! -f "main.py" ]; then
+            echo "⚠️ 未找到main.py，自动创建..."
+            cat > main.py << EOF
+# main.py - 安卓打包强制要求的入口文件
+import account_book
+if __name__ == '__main__':
+    account_book.AdvancedAccountBookApp().run()
+EOF
+          fi
+          python3 -m py_compile main.py || (echo "❌ main.py语法错误" && exit 1)
+          
+          echo "✅ 检查字体文件simhei.ttf..."
           if [ ! -f "simhei.ttf" ]; then
-            echo "⚠️ simhei.ttf文件缺失，将注释该配置"
-            SIMHEI_MISSING=1
+            echo "⚠️ simhei.ttf文件缺失，尝试下载备用字体..."
+            # 下载备用中文字体（防止字体缺失导致中文乱码）
+            wget --no-check-certificate https://www.fonts.net.cn/font-download/id/5410/file/simhei.zip -O simhei.zip
+            unzip -q simhei.zip -d .
+            rm -f simhei.zip
+            if [ ! -f "simhei.ttf" ]; then
+              echo "❌ 字体文件下载失败，中文可能显示异常"
+              SIMHEI_MISSING=1
+            else
+              SIMHEI_MISSING=0
+            fi
           else
             SIMHEI_MISSING=0
           fi
           echo "SIMHEI_MISSING=$SIMHEI_MISSING" >> $GITHUB_ENV
 
+      # 步骤5：配置Android SDK/NDK（指定r21e，兼容Kivy）
       - name: 配置Android SDK/NDK环境
         run: |
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
           export PATH=$JAVA_HOME/bin:$PATH
           
+          # 创建SDK/NDK目录
           BUILDOZER_SDK_PATH="/home/runner/.buildozer/android/platform/android-sdk"
           BUILDOZER_NDK_PATH="/home/runner/.buildozer/android/platform/android-ndk-r21e"
           mkdir -p $BUILDOZER_SDK_PATH $BUILDOZER_NDK_PATH
           
+          # 下载Android命令行工具
           CMDLINE_TOOLS_URL="https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
           wget --no-check-certificate $CMDLINE_TOOLS_URL -O cmdline-tools.zip
           mkdir -p tmp_cmdline_tools
@@ -84,6 +117,7 @@ jobs:
           cp -r tmp_cmdline_tools/*/* $BUILDOZER_SDK_PATH/cmdline-tools/latest/ || cp -r tmp_cmdline_tools/* $BUILDOZER_SDK_PATH/cmdline-tools/latest/
           rm -rf tmp_cmdline_tools cmdline-tools.zip
           
+          # 链接SDK工具
           mkdir -p $BUILDOZER_SDK_PATH/tools/bin
           ln -s $BUILDOZER_SDK_PATH/cmdline-tools/latest/bin/sdkmanager $BUILDOZER_SDK_PATH/tools/bin/sdkmanager
           ln -s $BUILDOZER_SDK_PATH/cmdline-tools/latest/bin/avdmanager $BUILDOZER_SDK_PATH/tools/bin/avdmanager
@@ -92,15 +126,19 @@ jobs:
           export ANDROID_SDK_ROOT=$BUILDOZER_SDK_PATH
           export PATH=$BUILDOZER_SDK_PATH/cmdline-tools/latest/bin:$BUILDOZER_SDK_PATH/tools/bin:$PATH
           
+          # 接受SDK许可
           echo y | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH --licenses || true
+          # 安装所需的SDK组件
           echo y | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "platform-tools" "build-tools;30.0.3" "platforms;android-21" --verbose
           
+          # 下载并安装NDK r21e（兼容Kivy 2.1.0）
           echo "✅ 安装NDK r21e..."
           NDK_URL="https://dl.google.com/android/repository/android-ndk-r21e-linux-x86_64.zip"
           wget --no-check-certificate $NDK_URL -O android-ndk-r21e.zip
           unzip -q -o android-ndk-r21e.zip -d /home/runner/.buildozer/android/platform/
           rm -f android-ndk-r21e.zip
           
+          # 验证NDK安装
           if [ ! -d "$BUILDOZER_NDK_PATH" ]; then
             echo "❌ NDK r21e安装失败"
             ls -la /home/runner/.buildozer/android/platform/
@@ -108,6 +146,7 @@ jobs:
           fi
           echo "✅ NDK r21e安装成功：$BUILDOZER_NDK_PATH"
           
+          # 验证AIDL工具
           AIDL_PATH=$BUILDOZER_SDK_PATH/build-tools/30.0.3/aidl
           if [ -f "$AIDL_PATH" ]; then
             echo "✅ Aidl工具已找到：$AIDL_PATH"
@@ -116,59 +155,48 @@ jobs:
             exit 1
           fi
           
+          # 赋予目录权限
           chmod -R 777 /home/runner/.buildozer
 
-      - name: 配置Buildozer.spec（禁用gstplayer+适配依赖）
+      # 步骤6：生成完整的buildozer.spec（包含版本号、权限等必填项）
+      - name: 生成buildozer.spec配置文件
         run: |
+          # 初始化默认配置
           buildozer init
           
-          sed -i 's|title = My Application|title = 记账本|' buildozer.spec
-          sed -i 's|package.name = myapp|package.name = accountbook|' buildozer.spec
-          sed -i 's|package.domain = org.test|package.domain = org.example|' buildozer.spec
-          sed -i 's|source.include_exts = py,png,jpg,kv,atlas|source.include_exts = py,png,jpg,kv,atlas,ttf|' buildozer.spec
-          
-          # 处理字体文件缺失
-          if [ $SIMHEI_MISSING -eq 1 ]; then
-            sed -i 's|source.include_files = simhei.ttf|# source.include_files = simhei.ttf|' buildozer.spec
-          else
-            sed -i 's|# source.include_files = |source.include_files = simhei.ttf|' buildozer.spec
-          fi
-          
-          # 依赖配置（匹配安装的版本）
-          sed -i 's|requirements = python3,kivy|requirements = python3,kivy==2.1.0,pyjnius==1.6.1,plyer==2.1.0|' buildozer.spec
-          
-          # Android配置
-          sed -i 's|# android.build_tools = 33.0.0|android.build_tools = 30.0.3|' buildozer.spec
-          sed -i 's|android.ndk = 25b|android.ndk = 21e|' buildozer.spec
-          sed -i 's|android.api = 27|android.api = 21|' buildozer.spec
-          sed -i 's|android.ndk_api = 21|android.ndk_api = 21|' buildozer.spec
-          sed -i 's|android.arch = arm64-v8a|android.arch = armeabi-v7a|' buildozer.spec
-          sed -i 's|# android.permissions = |android.permissions = WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE|' buildozer.spec
-          sed -i 's|android.logcat = false|android.logcat = true|' buildozer.spec
-          sed -i 's|# android.sdk_path = |android.sdk_path = /home/runner/.buildozer/android/platform/android-sdk|' buildozer.spec
-          
-          # 入口文件
-          sed -i 's|# main.py = main.py|main.py = account_book.py|' buildozer.spec
-          sed -i 's|# android.entrypoint = org.kivy.android.PythonActivity|android.entrypoint = org.kivy.android.PythonActivity|' buildozer.spec
-          sed -i 's|# app.source.dir = .|app.source.dir = .|' buildozer.spec
-          sed -i 's|# app.source.include_exts = py,png,jpg,kv,atlas|app.source.include_exts = py,png,jpg,kv,atlas,ttf|' buildozer.spec
-          
-          # 日志级别
-          sed -i 's|# log_level = 1|log_level = 2|' buildozer.spec
-          
-          # 关键：禁用gstplayer模块（避免编译错误）
-          echo "android.add_jars = " >> buildozer.spec
-          echo "android.add_assets = " >> buildozer.spec
-          echo "kivy.build_options = disable_gstplayer" >> buildozer.spec
-          
-          # 内存优化
-          echo "p4a.local_recipes = ./" >> buildozer.spec
-          echo "p4a.concurrent_build = 1" >> buildozer.spec
-          echo "p4a.javac_args = -J-Xmx4096m" >> buildozer.spec
-          echo "p4a.ignore_setup_py = false" >> buildozer.spec
+          # 覆盖为自定义配置（解决版本号、入口、权限等问题）
+          cat > buildozer.spec << EOF
+[app]
+title = 记账本
+version = 0.1
+package.name = accountbook
+package.domain = org.example
+source.dir = .
+source.include_exts = py,png,jpg,kv,atlas,ttf
+source.include_files = main.py,account_book.py,simhei.ttf
+requirements = python3,kivy==2.1.0,pyjnius,plyer
+android.ndk = 21e
+android.api = 21
+android.build_tools = 30.0.3
+android.ndk_api = 21
+android.arch = armeabi-v7a,arm64-v8a
+android.permissions = WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE
+main.py = main.py
+log_level = 2
 
-      - name: 构建APK
+[buildozer]
+log_level = 2
+warn_on_root = 1
+EOF
+          
+          # 验证配置文件
+          echo "✅ 生成的buildozer.spec内容："
+          cat buildozer.spec
+
+      # 步骤7：构建APK（核心步骤）
+      - name: 构建安卓APK
         run: |
+          # 配置环境变量
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
           export ANDROID_HOME="/home/runner/.buildozer/android/platform/android-sdk"
           export ANDROID_SDK_ROOT=$ANDROID_HOME
@@ -179,37 +207,36 @@ jobs:
           export JAVA_OPTS="-Xmx4096m -Xms2048m"
           export GRADLE_OPTS="-Xmx4096m -Xms2048m"
           
+          # 验证工具路径
           echo "✅ 工具验证："
           which java && which javac && which sdkmanager && which aidl
           ls -la $ANDROIDNDK
           
-          # 构建APK
+          # 执行打包（输出详细日志）
           buildozer -v android debug 2>&1 | tee buildozer_full.log
           
-          # 检查并重命名APK
+          # 检查并整理APK文件
           echo "✅ 构建完成，检查APK文件："
-          if [ -d "${{ github.workspace }}/bin" ]; then
+          mkdir -p ${{ github.workspace }}/bin
+          if ls ${{ github.workspace }}/.buildozer/android/platform/build*/dists/*/*.apk 1> /dev/null 2>&1; then
+            # 复制APK到bin目录并重命名
+            cp ${{ github.workspace }}/.buildozer/android/platform/build*/dists/*/*.apk ${{ github.workspace }}/bin/accountbook-debug.apk
+            echo "✅ APK文件已生成：${{ github.workspace }}/bin/accountbook-debug.apk"
             ls -la ${{ github.workspace }}/bin/
-            if ls ${{ github.workspace }}/bin/*.apk 1> /dev/null 2>&1; then
-              mv ${{ github.workspace }}/bin/*.apk ${{ github.workspace }}/bin/accountbook-debug.apk
-              echo "✅ APK文件已生成：${{ github.workspace }}/bin/accountbook-debug.apk"
-            else
-              echo "❌ 未找到APK文件，打印详细日志末尾："
-              tail -100 buildozer_full.log
-              exit 1
-            fi
           else
-            echo "❌ bin目录不存在"
+            echo "❌ 未找到APK文件，打印详细日志末尾："
+            tail -200 buildozer_full.log
             exit 1
           fi
 
-      - name: 上传APK和日志
-        if: always()
+      # 步骤8：上传APK和日志（方便下载调试）
+      - name: 上传APK和构建日志
+        if: always()  # 无论构建成功/失败都上传
         uses: actions/upload-artifact@v4
         with:
-          name: 安卓APK+构建日志
+          name: 记账本APK+构建日志
           path: |
             ${{ github.workspace }}/bin/accountbook-debug.apk
             ${{ github.workspace }}/buildozer_full.log
             ${{ github.workspace }}/buildozer.spec
-          retention-days: 30
+          retention-days: 30  # 保留30天
