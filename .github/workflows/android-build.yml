@@ -13,6 +13,16 @@ jobs:
     defaults:
       run:
         working-directory: ${{ github.workspace }}
+    # 优化资源：增加构建超时时间，分配更多内存
+    timeout-minutes: 60
+    env:
+      # 全局环境变量：开启详细日志，指定NDK路径
+      BUILDOZER_LOG_LEVEL: 2
+      ANDROIDNDK: /home/runner/.buildozer/android/platform/android-ndk-r25b
+      ANDROIDSDK: /home/runner/.buildozer/android/platform/android-sdk
+      ANDROIDAPI: 33
+      ANDROID_BUILD_TOOLS: 33.0.2
+      JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
 
     steps:
       # 步骤1：拉取仓库代码
@@ -23,7 +33,7 @@ jobs:
       - name: 安装系统依赖并配置Java 17
         run: |
           sudo apt update -y
-          # 安装所有依赖（含openjdk-17-jdk）
+          # 安装所有依赖（含NDK/编译所需的额外依赖）
           sudo apt install -y \
             git \
             zip \
@@ -48,7 +58,13 @@ jobs:
             libreadline-dev \
             expect \
             lib32z1-dev \
-            lib32stdc++6
+            lib32stdc++6 \
+            # 补充python-for-android所需的依赖
+            libffi-dev \
+            libssl-dev \
+            libjpeg-dev \
+            zlib1g-dev \
+            libltdl-dev
           
           # 强制将Java 17设为系统默认版本
           sudo update-alternatives --install /usr/bin/java java /usr/lib/jvm/java-17-openjdk-amd64/bin/java 1
@@ -56,11 +72,11 @@ jobs:
           sudo update-alternatives --set java /usr/lib/jvm/java-17-openjdk-amd64/bin/java
           sudo update-alternatives --set javac /usr/lib/jvm/java-17-openjdk-amd64/bin/javac
           
-          # 验证Java版本（必须显示17.x.x）
+          # 验证Java版本
           java -version
           javac -version
           
-          # 配置JAVA_HOME环境变量（全局生效）
+          # 配置JAVA_HOME全局生效
           echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> $GITHUB_ENV
           echo "PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH" >> $GITHUB_ENV
 
@@ -68,20 +84,25 @@ jobs:
       - name: 安装Python依赖
         run: |
           python3 -m pip install --upgrade pip setuptools wheel
+          # 升级pip到最新版，避免依赖安装警告
+          pip install --upgrade pip
           pip3 install --upgrade buildozer
           pip3 install --upgrade cython==0.29.33
           pip3 install git+https://github.com/kivy/python-for-android.git@master
+          # 安装python-for-android额外依赖
+          pip3 install pyjnius==1.4.2 plyer==2.1.0
 
-      # 步骤4：完整配置Buildozer专属SDK（创建软链接适配旧路径）
-      - name: 配置完整Android SDK环境
+      # 步骤4：完整配置Android SDK/NDK环境（显式安装NDK）
+      - name: 配置完整Android SDK/NDK环境
         run: |
           # 加载Java 17环境变量
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
           export PATH=$JAVA_HOME/bin:$PATH
           
-          # Buildozer默认SDK根路径
+          # Buildozer默认SDK/NDK根路径
           BUILDOZER_SDK_PATH="/home/runner/.buildozer/android/platform/android-sdk"
-          mkdir -p $BUILDOZER_SDK_PATH
+          BUILDOZER_NDK_PATH="/home/runner/.buildozer/android/platform/android-ndk-r25b"
+          mkdir -p $BUILDOZER_SDK_PATH $BUILDOZER_NDK_PATH
           
           # 1. 安装SDK Command-line Tools（适配新版目录结构）
           CMDLINE_TOOLS_URL="https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
@@ -91,80 +112,67 @@ jobs:
           mkdir -p tmp_cmdline_tools
           unzip -q -o cmdline-tools.zip -d tmp_cmdline_tools/
           
-          # 新版Command-line Tools解压后根目录是cmdline-tools，需移动到latest
+          # 移动到latest目录
           mkdir -p $BUILDOZER_SDK_PATH/cmdline-tools/latest
-          # 移动解压后的所有文件到latest目录（适配不同解压结构）
           cp -r tmp_cmdline_tools/*/* $BUILDOZER_SDK_PATH/cmdline-tools/latest/ || cp -r tmp_cmdline_tools/* $BUILDOZER_SDK_PATH/cmdline-tools/latest/
           rm -rf tmp_cmdline_tools cmdline-tools.zip
           
-          # 2. 核心修复：创建软链接，将新版sdkmanager映射到Buildozer查找的旧路径
+          # 2. 创建sdkmanager软链接适配旧路径
           mkdir -p $BUILDOZER_SDK_PATH/tools/bin
           ln -s $BUILDOZER_SDK_PATH/cmdline-tools/latest/bin/sdkmanager $BUILDOZER_SDK_PATH/tools/bin/sdkmanager
           ln -s $BUILDOZER_SDK_PATH/cmdline-tools/latest/bin/avdmanager $BUILDOZER_SDK_PATH/tools/bin/avdmanager
-          # 验证软链接是否创建成功
           ls -la $BUILDOZER_SDK_PATH/tools/bin/
-          if [ ! -f "$BUILDOZER_SDK_PATH/tools/bin/sdkmanager" ]; then
-            echo "❌ sdkmanager软链接创建失败"
-            exit 1
-          fi
           
-          # 3. 配置环境变量，让sdkmanager生效
+          # 3. 配置环境变量
           export ANDROID_HOME=$BUILDOZER_SDK_PATH
           export ANDROID_SDK_ROOT=$BUILDOZER_SDK_PATH
           export PATH=$BUILDOZER_SDK_PATH/cmdline-tools/latest/bin:$BUILDOZER_SDK_PATH/tools/bin:$PATH
           
           # 4. 自动接受所有SDK许可证
-          echo "✅ 自动接受所有Android SDK许可证..."
           echo y | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH --licenses || true
           
-          # 5. 安装SDK Platform Tools（Buildozer必需）
-          echo "✅ 安装platform-tools..."
+          # 5. 安装platform-tools和build-tools
           echo y | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "platform-tools" --verbose
-          
-          # 6. 安装Build-Tools 33.0.2（优先sdkmanager，失败则手动下载）
-          echo "✅ 安装build-tools;33.0.2..."
           if ! echo y | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "build-tools;33.0.2" --verbose; then
-            echo "⚠️ sdkmanager安装Build-Tools失败，手动下载兜底..."
-            # 手动下载Build-Tools 33.0.2
-            wget --no-check-certificate https://mirrors.tuna.tsinghua.edu.cn/android/repository/build-tools_r33.0.2-linux.zip -O build-tools.zip || wget --no-check-certificate https://dl.google.com/android/repository/build-tools_r33.0.2-linux.zip -O build-tools.zip
+            wget --no-check-certificate https://mirrors.tuna.tsinghua.edu.cn/android/repository/build-tools_r33.0.2-linux.zip -O build-tools.zip
             mkdir -p $BUILDOZER_SDK_PATH/build-tools
             unzip -q -o build-tools.zip -d $BUILDOZER_SDK_PATH/build-tools/
-            # 适配android-13目录名
             if [ -d "$BUILDOZER_SDK_PATH/build-tools/android-13" ]; then
               mv $BUILDOZER_SDK_PATH/build-tools/android-13 $BUILDOZER_SDK_PATH/build-tools/33.0.2
             fi
           fi
           
-          # 7. 尝试安装Android 33 SDK Platform（可选，失败不影响）
-          echo "✅ 安装platforms;android-33..."
-          echo y | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "platforms;android-33" --verbose || echo "⚠️ platforms;android-33安装失败，继续构建..."
-          
-          # 8. 验证Build-Tools和Aidl是否存在
-          echo "✅ 验证Build-Tools和Aidl..."
-          if [ ! -d "$BUILDOZER_SDK_PATH/build-tools/33.0.2" ]; then
-            echo "❌ Build-Tools 33.0.2目录不存在，当前build-tools目录："
-            ls -la $BUILDOZER_SDK_PATH/build-tools/
+          # 6. 显式安装NDK r25b（替代Buildozer自动下载，避免解压失败）
+          echo "✅ 显式安装Android NDK r25b..."
+          NDK_URL="https://dl.google.com/android/repository/android-ndk-r25b-linux.zip"
+          wget --no-check-certificate $NDK_URL -O android-ndk-r25b.zip
+          unzip -q -o android-ndk-r25b.zip -d /home/runner/.buildozer/android/platform/
+          # 验证NDK路径
+          if [ ! -d "$BUILDOZER_NDK_PATH" ]; then
+            echo "❌ NDK安装失败，目录不存在：$BUILDOZER_NDK_PATH"
+            ls -la /home/runner/.buildozer/android/platform/
             exit 1
           fi
+          echo "✅ NDK安装成功：$BUILDOZER_NDK_PATH"
           
+          # 7. 验证Aidl和NDK
           AIDL_PATH=$BUILDOZER_SDK_PATH/build-tools/33.0.2/aidl
           if [ -f "$AIDL_PATH" ]; then
             echo "✅ Aidl工具已找到：$AIDL_PATH"
           else
-            echo "❌ Aidl工具缺失，33.0.2目录内容："
-            ls -la $BUILDOZER_SDK_PATH/build-tools/33.0.2/
+            echo "❌ Aidl工具缺失"
             exit 1
           fi
           
           # 赋予全权限
           chmod -R 777 /home/runner/.buildozer
 
-      # 步骤5：初始化并配置Buildozer.spec（强制指定版本）
+      # 步骤5：初始化并配置Buildozer.spec（开启详细日志+优化配置）
       - name: 初始化并配置Buildozer.spec
         run: |
           buildozer init
           
-          # 批量修改配置
+          # 批量修改配置，核心增加日志级别和优化参数
           sed -i 's|title = My Application|title = 记账本|' buildozer.spec
           sed -i 's|package.name = myapp|package.name = accountbook|' buildozer.spec
           sed -i 's|package.domain = org.test|package.domain = org.example|' buildozer.spec
@@ -179,13 +187,20 @@ jobs:
           sed -i 's|android.ndk_api = 21|android.ndk_api = 25|' buildozer.spec
           sed -i 's|android.arch = armeabi-v7a|android.arch = arm64-v8a|' buildozer.spec
           sed -i 's|# android.permissions = |android.permissions = WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE|' buildozer.spec
-          sed -i 's|android.logcat = false|android.logcat = false|' buildozer.spec
+          sed -i 's|android.logcat = false|android.logcat = true|' buildozer.spec
           sed -i 's|# android.sdk_path = |android.sdk_path = /home/runner/.buildozer/android/platform/android-sdk|' buildozer.spec
+          
+          # 核心：开启详细日志（log_level=2），显示所有错误
+          sed -i 's|# log_level = 1|log_level = 2|' buildozer.spec
+          # 优化构建：增加内存限制和并行编译
+          echo "p4a.local_recipes = ./" >> buildozer.spec
+          echo "p4a.concurrent_build = 4" >> buildozer.spec
+          echo "p4a.ignore_setup_py = false" >> buildozer.spec
 
-      # 步骤6：构建安卓APK
-      - name: 构建安卓APK
+      # 步骤6：构建安卓APK（开启详细日志输出）
+      - name: 构建安卓APK（详细日志）
         run: |
-          # 配置环境变量，确保所有工具路径生效（绑定Java 17）
+          # 配置完整环境变量
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
           export ANDROID_HOME="/home/runner/.buildozer/android/platform/android-sdk"
           export ANDROID_SDK_ROOT=$ANDROID_HOME
@@ -194,19 +209,25 @@ jobs:
           export ANDROID_BUILD_TOOLS="33.0.2"
           export PATH=$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/tools/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/33.0.2:$PATH
           
-          # 验证Java和sdkmanager版本
-          java -version
-          sdkmanager --version
+          # 验证所有工具路径
+          echo "✅ 验证工具路径："
+          which java
+          which javac
+          which sdkmanager
+          which aidl
+          ls -la $ANDROIDNDK
           
-          # 构建APK
-          buildozer android debug
+          # 构建APK，输出详细日志（-v开启verbose）
+          buildozer -v android debug
 
-      # 步骤7：上传APK产物
-      - name: 上传APK产物
+      # 步骤7：上传APK产物（即使构建失败，也上传日志方便排查）
+      - name: 上传构建日志和产物
+        if: always() # 无论构建成功/失败都执行
         uses: actions/upload-artifact@v4
         with:
-          name: 记账本-安卓APK
+          name: 构建日志+APK产物
           path: |
-            ${{ github.workspace }}/bin/accountbook-0.1-debug.apk
-            ${{ github.workspace }}/.buildozer/android/app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 90
+            ${{ github.workspace }}/bin/
+            ${{ github.workspace }}/.buildozer/logs/
+            ${{ github.workspace }}/buildozer.spec
+          retention-days: 14
