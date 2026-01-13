@@ -13,10 +13,8 @@ jobs:
     defaults:
       run:
         working-directory: ${{ github.workspace }}
-    # 优化资源：增加构建超时时间，分配更多内存
     timeout-minutes: 60
     env:
-      # 全局环境变量：开启详细日志，指定NDK路径
       BUILDOZER_LOG_LEVEL: 2
       ANDROIDNDK: /home/runner/.buildozer/android/platform/android-ndk-r25b
       ANDROIDSDK: /home/runner/.buildozer/android/platform/android-sdk
@@ -29,42 +27,12 @@ jobs:
       - name: 拉取仓库代码
         uses: actions/checkout@v4
 
-      # 步骤2：安装系统依赖+强制配置Java 17为默认版本
+      # 步骤2：安装系统依赖+强制配置Java 17为默认版本（修正语法错误）
       - name: 安装系统依赖并配置Java 17
         run: |
           sudo apt update -y
-          # 安装所有依赖（含NDK/编译所需的额外依赖）
-          sudo apt install -y \
-            git \
-            zip \
-            unzip \
-            openjdk-17-jdk \
-            python3-pip \
-            python3-dev \
-            autoconf \
-            libtool \
-            pkg-config \
-            zlib1g-dev \
-            libncurses5-dev \
-            libncursesw5-dev \
-            libtinfo5 \
-            cmake \
-            libffi-dev \
-            libssl-dev \
-            libsqlite3-dev \
-            build-essential \
-            liblzma-dev \
-            libbz2-dev \
-            libreadline-dev \
-            expect \
-            lib32z1-dev \
-            lib32stdc++6 \
-            # 补充python-for-android所需的依赖
-            libffi-dev \
-            libssl-dev \
-            libjpeg-dev \
-            zlib1g-dev \
-            libltdl-dev
+          # 修正：所有依赖放在同一行，移除多余换行和注释，避免shell解析错误
+          sudo apt install -y git zip unzip openjdk-17-jdk python3-pip python3-dev autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev libsqlite3-dev build-essential liblzma-dev libbz2-dev libreadline-dev expect lib32z1-dev lib32stdc++6 libjpeg-dev libltdl-dev
           
           # 强制将Java 17设为系统默认版本
           sudo update-alternatives --install /usr/bin/java java /usr/lib/jvm/java-17-openjdk-amd64/bin/java 1
@@ -84,12 +52,10 @@ jobs:
       - name: 安装Python依赖
         run: |
           python3 -m pip install --upgrade pip setuptools wheel
-          # 升级pip到最新版，避免依赖安装警告
           pip install --upgrade pip
           pip3 install --upgrade buildozer
           pip3 install --upgrade cython==0.29.33
           pip3 install git+https://github.com/kivy/python-for-android.git@master
-          # 安装python-for-android额外依赖
           pip3 install pyjnius==1.4.2 plyer==2.1.0
 
       # 步骤4：完整配置Android SDK/NDK环境（显式安装NDK）
@@ -104,7 +70,7 @@ jobs:
           BUILDOZER_NDK_PATH="/home/runner/.buildozer/android/platform/android-ndk-r25b"
           mkdir -p $BUILDOZER_SDK_PATH $BUILDOZER_NDK_PATH
           
-          # 1. 安装SDK Command-line Tools（适配新版目录结构）
+          # 1. 安装SDK Command-line Tools
           CMDLINE_TOOLS_URL="https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
           wget --no-check-certificate $CMDLINE_TOOLS_URL -O cmdline-tools.zip
           
@@ -142,7 +108,7 @@ jobs:
             fi
           fi
           
-          # 6. 显式安装NDK r25b（替代Buildozer自动下载，避免解压失败）
+          # 6. 显式安装NDK r25b
           echo "✅ 显式安装Android NDK r25b..."
           NDK_URL="https://dl.google.com/android/repository/android-ndk-r25b-linux.zip"
           wget --no-check-certificate $NDK_URL -O android-ndk-r25b.zip
@@ -167,12 +133,12 @@ jobs:
           # 赋予全权限
           chmod -R 777 /home/runner/.buildozer
 
-      # 步骤5：初始化并配置Buildozer.spec（开启详细日志+优化配置）
+      # 步骤5：初始化并配置Buildozer.spec（开启详细日志）
       - name: 初始化并配置Buildozer.spec
         run: |
           buildozer init
           
-          # 批量修改配置，核心增加日志级别和优化参数
+          # 批量修改配置
           sed -i 's|title = My Application|title = 记账本|' buildozer.spec
           sed -i 's|package.name = myapp|package.name = accountbook|' buildozer.spec
           sed -i 's|package.domain = org.test|package.domain = org.example|' buildozer.spec
@@ -190,14 +156,14 @@ jobs:
           sed -i 's|android.logcat = false|android.logcat = true|' buildozer.spec
           sed -i 's|# android.sdk_path = |android.sdk_path = /home/runner/.buildozer/android/platform/android-sdk|' buildozer.spec
           
-          # 核心：开启详细日志（log_level=2），显示所有错误
+          # 开启详细日志
           sed -i 's|# log_level = 1|log_level = 2|' buildozer.spec
-          # 优化构建：增加内存限制和并行编译
+          # 优化构建参数
           echo "p4a.local_recipes = ./" >> buildozer.spec
           echo "p4a.concurrent_build = 4" >> buildozer.spec
           echo "p4a.ignore_setup_py = false" >> buildozer.spec
 
-      # 步骤6：构建安卓APK（开启详细日志输出）
+      # 步骤6：构建安卓APK（详细日志）
       - name: 构建安卓APK（详细日志）
         run: |
           # 配置完整环境变量
@@ -217,12 +183,12 @@ jobs:
           which aidl
           ls -la $ANDROIDNDK
           
-          # 构建APK，输出详细日志（-v开启verbose）
+          # 构建APK
           buildozer -v android debug
 
-      # 步骤7：上传APK产物（即使构建失败，也上传日志方便排查）
+      # 步骤7：上传构建日志和产物
       - name: 上传构建日志和产物
-        if: always() # 无论构建成功/失败都执行
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: 构建日志+APK产物
