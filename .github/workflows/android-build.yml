@@ -38,7 +38,6 @@ jobs:
           pip3 install buildozer==1.5.0 cython==0.29.36 kivy==2.1.0 pyjnius==1.6.1 plyer==2.1.0
           pip3 install git+https://github.com/kivy/python-for-android.git@master
 
-      # 修复第75行核心问题：拆分易出错的文件检查逻辑
       - name: 检查并创建main.py
         run: |
           # 检查主代码语法
@@ -81,10 +80,13 @@ jobs:
           echo y | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH --licenses
           echo y | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "platform-tools" "build-tools;30.0.3" "platforms;android-21"
 
-      - name: 生成buildozer.spec
+      - name: 生成buildozer.spec（修复文件冲突）
         run: |
+          # 核心修复：先删除已有的spec文件，避免init报错
+          rm -f buildozer.spec
+          # 再执行init（此时目录无spec，不会报错）
           buildozer init
-          # 直接写入配置（避免EOF嵌套错误）
+          # 直接写入配置（覆盖默认init生成的文件）
           echo "[app]" > buildozer.spec
           echo "title = 记账本" >> buildozer.spec
           echo "version = 0.1" >> buildozer.spec
@@ -107,9 +109,9 @@ jobs:
           export ANDROID_HOME="/home/runner/.buildozer/android/platform/android-sdk"
           export PATH=$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH
           buildozer -v android debug 2>&1 | tee buildozer.log
-          # 复制APK文件
+          # 复制APK文件（兼容不同Buildozer版本的输出路径）
           mkdir -p bin
-          cp .buildozer/android/platform/build/outputs/apk/debug/*.apk bin/accountbook.apk || echo "APK构建失败"
+          find .buildozer -name "*.apk" -type f -exec cp {} bin/accountbook.apk \; || echo "APK构建失败，查看日志：" && cat buildozer.log
 
       - name: 上传产物
         if: always()
