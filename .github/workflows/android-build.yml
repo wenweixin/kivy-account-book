@@ -120,21 +120,35 @@ jobs:
           chmod -R 777 ${{ github.workspace }}/bin
           chmod -R 777 ~/Android/Sdk
 
-      # 步骤8：手动安装Build-Tools 33.0.2（适配android-13目录名）
+      # 步骤8：手动安装Build-Tools 33.0.2（修正下载地址+强化校验）
       - name: 手动安装Build-Tools 33.0.2
         run: |
           export ANDROID_HOME=~/Android/Sdk
           # 创建Build-Tools目录（确保存在）
           mkdir -p $ANDROID_HOME/build-tools
           
-          # 下载正确的Build-Tools 33.0.2包（替换为官方明确地址）
-          wget https://dl.google.com/android/repository/build-tools-33.0.2-linux.zip -O build-tools.zip || wget https://mirrors.tuna.tsinghua.edu.cn/android/repository/build-tools-33.0.2-linux.zip -O build-tools.zip
+          # 核心修正：恢复带r的正确下载地址（优先清华镜像）
+          BUILD_TOOLS_URL="https://mirrors.tuna.tsinghua.edu.cn/android/repository/build-tools_r33.0.2-linux.zip"
+          BACKUP_URL="https://dl.google.com/android/repository/build-tools_r33.0.2-linux.zip"
+          
+          # 下载并校验文件（确保下载成功）
+          echo "📥 从清华镜像下载Build-Tools 33.0.2..."
+          wget --no-check-certificate $BUILD_TOOLS_URL -O build-tools.zip || (echo "❌ 清华镜像下载失败，尝试谷歌官方地址..." && wget --no-check-certificate $BACKUP_URL -O build-tools.zip)
+          
+          # 校验下载的文件大小（避免空文件）
+          FILE_SIZE=$(stat -c%s "build-tools.zip" 2>/dev/null || echo 0)
+          if [ $FILE_SIZE -lt 1000000 ]; then # 小于1MB则判定为下载失败
+            echo "❌ Build-Tools包下载失败，文件大小：$FILE_SIZE 字节"
+            ls -la build-tools.zip
+            exit 1
+          fi
+          echo "✅ Build-Tools包下载成功，文件大小：$((FILE_SIZE/1024/1024)) MB"
           
           # 解压到Build-Tools目录（覆盖已有文件）
           unzip -q -o build-tools.zip -d $ANDROID_HOME/build-tools/
           
           # 查看解压后的实际目录名（调试用）
-          echo "解压后的Build-Tools目录列表："
+          echo "📂 解压后的Build-Tools目录列表："
           ls -la $ANDROID_HOME/build-tools/
           
           # 适配两种目录名：优先android-13，再匹配33.0.2开头
