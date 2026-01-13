@@ -13,7 +13,7 @@ jobs:
     defaults:
       run:
         working-directory: ${{ github.workspace }}
-    timeout-minutes: 90  # 延长超时时间
+    timeout-minutes: 90
     env:
       BUILDOZER_LOG_LEVEL: 2
       ANDROIDNDK: /home/runner/.buildozer/android/platform/android-ndk-r21e
@@ -22,7 +22,6 @@ jobs:
       ANDROID_BUILD_TOOLS: 30.0.3
       JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
       ANDROID_NDK_ROOT: /home/runner/.buildozer/android/platform/android-ndk-r21e
-      # 内存优化：增加Java堆内存
       JAVA_OPTS: "-Xmx4096m -Xms2048m"
       GRADLE_OPTS: "-Xmx4096m -Xms2048m"
 
@@ -45,22 +44,21 @@ jobs:
           echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> $GITHUB_ENV
           echo "PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH" >> $GITHUB_ENV
 
-      - name: 安装Python依赖
+      - name: 安装Python依赖（关键：降级Cython到兼容版本）
         run: |
           python3 -m pip install --upgrade pip setuptools wheel
           pip install --upgrade pip
-          pip3 install --upgrade buildozer cython==3.0.10 kivy==2.1.0
+          # 降级Cython到0.29.36（与Kivy 2.1.0完全兼容）
+          pip3 install --upgrade buildozer cython==0.29.36 kivy==2.1.0
           pip3 install git+https://github.com/kivy/python-for-android.git@master
           pip3 install pyjnius==1.6.1 plyer==2.1.0
 
-      - name: 检查代码语法和资源文件（提前发现错误）
+      - name: 检查代码语法和资源文件
         run: |
           echo "✅ 检查Python代码语法..."
-          # 检查account_book.py语法是否正确
           python3 -m py_compile account_book.py || (echo "❌ account_book.py语法错误" && exit 1)
           
           echo "✅ 检查资源文件..."
-          # 如果配置了simhei.ttf，检查是否存在；不存在则提示并注释配置
           if [ ! -f "simhei.ttf" ]; then
             echo "⚠️ simhei.ttf文件缺失，将注释该配置"
             SIMHEI_MISSING=1
@@ -120,7 +118,7 @@ jobs:
           
           chmod -R 777 /home/runner/.buildozer
 
-      - name: 配置Buildozer.spec（适配资源文件缺失）
+      - name: 配置Buildozer.spec（禁用gstplayer+适配依赖）
         run: |
           buildozer init
           
@@ -129,15 +127,17 @@ jobs:
           sed -i 's|package.domain = org.test|package.domain = org.example|' buildozer.spec
           sed -i 's|source.include_exts = py,png,jpg,kv,atlas|source.include_exts = py,png,jpg,kv,atlas,ttf|' buildozer.spec
           
-          # 如果simhei.ttf缺失，注释掉该配置
+          # 处理字体文件缺失
           if [ $SIMHEI_MISSING -eq 1 ]; then
             sed -i 's|source.include_files = simhei.ttf|# source.include_files = simhei.ttf|' buildozer.spec
           else
             sed -i 's|# source.include_files = |source.include_files = simhei.ttf|' buildozer.spec
           fi
           
+          # 依赖配置（匹配安装的版本）
           sed -i 's|requirements = python3,kivy|requirements = python3,kivy==2.1.0,pyjnius==1.6.1,plyer==2.1.0|' buildozer.spec
           
+          # Android配置
           sed -i 's|# android.build_tools = 33.0.0|android.build_tools = 30.0.3|' buildozer.spec
           sed -i 's|android.ndk = 25b|android.ndk = 21e|' buildozer.spec
           sed -i 's|android.api = 27|android.api = 21|' buildozer.spec
@@ -147,18 +147,27 @@ jobs:
           sed -i 's|android.logcat = false|android.logcat = true|' buildozer.spec
           sed -i 's|# android.sdk_path = |android.sdk_path = /home/runner/.buildozer/android/platform/android-sdk|' buildozer.spec
           
+          # 入口文件
           sed -i 's|# main.py = main.py|main.py = account_book.py|' buildozer.spec
           sed -i 's|# android.entrypoint = org.kivy.android.PythonActivity|android.entrypoint = org.kivy.android.PythonActivity|' buildozer.spec
           sed -i 's|# app.source.dir = .|app.source.dir = .|' buildozer.spec
           sed -i 's|# app.source.include_exts = py,png,jpg,kv,atlas|app.source.include_exts = py,png,jpg,kv,atlas,ttf|' buildozer.spec
           
+          # 日志级别
           sed -i 's|# log_level = 1|log_level = 2|' buildozer.spec
+          
+          # 关键：禁用gstplayer模块（避免编译错误）
+          echo "android.add_jars = " >> buildozer.spec
+          echo "android.add_assets = " >> buildozer.spec
+          echo "kivy.build_options = disable_gstplayer" >> buildozer.spec
+          
+          # 内存优化
           echo "p4a.local_recipes = ./" >> buildozer.spec
-          echo "p4a.concurrent_build = 1" >> buildozer.spec  # 降低并发，减少内存占用
+          echo "p4a.concurrent_build = 1" >> buildozer.spec
           echo "p4a.javac_args = -J-Xmx4096m" >> buildozer.spec
           echo "p4a.ignore_setup_py = false" >> buildozer.spec
 
-      - name: 构建APK（内存优化+详细日志）
+      - name: 构建APK
         run: |
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
           export ANDROID_HOME="/home/runner/.buildozer/android/platform/android-sdk"
@@ -167,7 +176,6 @@ jobs:
           export ANDROIDAPI="21"
           export ANDROID_BUILD_TOOLS="30.0.3"
           export PATH=$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/tools/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/30.0.3:$PATH
-          # 内存优化
           export JAVA_OPTS="-Xmx4096m -Xms2048m"
           export GRADLE_OPTS="-Xmx4096m -Xms2048m"
           
@@ -178,16 +186,16 @@ jobs:
           # 构建APK
           buildozer -v android debug 2>&1 | tee buildozer_full.log
           
-          # 检查APK是否生成，并输出路径
+          # 检查并重命名APK
           echo "✅ 构建完成，检查APK文件："
           if [ -d "${{ github.workspace }}/bin" ]; then
             ls -la ${{ github.workspace }}/bin/
-            # 如果有APK，重命名方便识别
             if ls ${{ github.workspace }}/bin/*.apk 1> /dev/null 2>&1; then
               mv ${{ github.workspace }}/bin/*.apk ${{ github.workspace }}/bin/accountbook-debug.apk
               echo "✅ APK文件已生成：${{ github.workspace }}/bin/accountbook-debug.apk"
             else
-              echo "❌ 未找到APK文件"
+              echo "❌ 未找到APK文件，打印详细日志末尾："
+              tail -100 buildozer_full.log
               exit 1
             fi
           else
@@ -195,7 +203,7 @@ jobs:
             exit 1
           fi
 
-      - name: 上传APK和日志（确保APK能下载）
+      - name: 上传APK和日志
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -204,4 +212,4 @@ jobs:
             ${{ github.workspace }}/bin/accountbook-debug.apk
             ${{ github.workspace }}/buildozer_full.log
             ${{ github.workspace }}/buildozer.spec
-          retention-days: 30  # 延长保留时间到30天
+          retention-days: 30
