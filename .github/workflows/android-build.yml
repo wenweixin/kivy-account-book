@@ -19,7 +19,7 @@ jobs:
       - name: 拉取仓库代码
         uses: actions/checkout@v4
 
-      # 步骤2：安装系统依赖+强制配置Java 17为默认版本（核心修复）
+      # 步骤2：安装系统依赖+强制配置Java 17为默认版本
       - name: 安装系统依赖并配置Java 17
         run: |
           sudo apt update -y
@@ -72,7 +72,7 @@ jobs:
           pip3 install --upgrade cython==0.29.33
           pip3 install git+https://github.com/kivy/python-for-android.git@master
 
-      # 步骤4：完整配置Buildozer专属SDK（适配Java 17）
+      # 步骤4：完整配置Buildozer专属SDK（自动接受许可证+兜底安装）
       - name: 配置完整Android SDK环境
         run: |
           # 加载Java 17环境变量
@@ -97,37 +97,51 @@ jobs:
           cp -r tmp_cmdline_tools/*/* $BUILDOZER_SDK_PATH/cmdline-tools/latest/ || cp -r tmp_cmdline_tools/* $BUILDOZER_SDK_PATH/cmdline-tools/latest/
           rm -rf tmp_cmdline_tools cmdline-tools.zip
           
-          # 2. 写入SDK许可证（跳过交互）
-          mkdir -p $BUILDOZER_SDK_PATH/licenses
-          echo "8933bad161af4178b1185d1a37fbf41ea5269c55" > $BUILDOZER_SDK_PATH/licenses/android-sdk-license
-          echo "d975f751698a77b662f1254ddbeed3901e976f5a" > $BUILDOZER_SDK_PATH/licenses/android-sdk-preview-license
-          echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > $BUILDOZER_SDK_PATH/licenses/androidsdk-license
-          
-          # 3. 配置环境变量，让sdkmanager生效（绑定Java 17）
+          # 2. 配置环境变量，让sdkmanager生效
           export ANDROID_HOME=$BUILDOZER_SDK_PATH
           export ANDROID_SDK_ROOT=$BUILDOZER_SDK_PATH
           export PATH=$BUILDOZER_SDK_PATH/cmdline-tools/latest/bin:$PATH
           
-          # 验证sdkmanager是否能正常启动（Java 17环境）
-          echo "🔍 验证sdkmanager版本（Java 17环境）："
-          sdkmanager --version || (echo "❌ sdkmanager启动失败，检查Java版本" && exit 1)
+          # 3. 自动接受所有SDK许可证（核心修复：替代静态文件）
+          echo "✅ 自动接受所有Android SDK许可证..."
+          echo y | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH --licenses || true
           
           # 4. 安装SDK Platform Tools（Buildozer必需）
-          sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "platform-tools" --verbose
+          echo "✅ 安装platform-tools..."
+          echo y | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "platform-tools" --verbose
           
-          # 5. 安装Build-Tools 33.0.2（Buildozer指定版本）
-          sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "build-tools;33.0.2" --verbose
+          # 5. 安装Build-Tools 33.0.2（优先sdkmanager，失败则手动下载）
+          echo "✅ 安装build-tools;33.0.2..."
+          if ! echo y | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "build-tools;33.0.2" --verbose; then
+            echo "⚠️ sdkmanager安装Build-Tools失败，手动下载兜底..."
+            # 手动下载Build-Tools 33.0.2
+            wget --no-check-certificate https://mirrors.tuna.tsinghua.edu.cn/android/repository/build-tools_r33.0.2-linux.zip -O build-tools.zip || wget --no-check-certificate https://dl.google.com/android/repository/build-tools_r33.0.2-linux.zip -O build-tools.zip
+            mkdir -p $BUILDOZER_SDK_PATH/build-tools
+            unzip -q -o build-tools.zip -d $BUILDOZER_SDK_PATH/build-tools/
+            # 适配android-13目录名
+            if [ -d "$BUILDOZER_SDK_PATH/build-tools/android-13" ]; then
+              mv $BUILDOZER_SDK_PATH/build-tools/android-13 $BUILDOZER_SDK_PATH/build-tools/33.0.2
+            fi
+          fi
           
-          # 6. 安装Android 33 SDK Platform（可选但建议）
-          sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "platforms;android-33" --verbose
+          # 6. 尝试安装Android 33 SDK Platform（可选，失败不影响）
+          echo "✅ 安装platforms;android-33..."
+          echo y | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "platforms;android-33" --verbose || echo "⚠️ platforms;android-33安装失败，继续构建..."
           
-          # 7. 确认aidl可用
+          # 7. 验证Build-Tools和Aidl是否存在
+          echo "✅ 验证Build-Tools和Aidl..."
+          if [ ! -d "$BUILDOZER_SDK_PATH/build-tools/33.0.2" ]; then
+            echo "❌ Build-Tools 33.0.2目录不存在，当前build-tools目录："
+            ls -la $BUILDOZER_SDK_PATH/build-tools/
+            exit 1
+          fi
+          
           AIDL_PATH=$BUILDOZER_SDK_PATH/build-tools/33.0.2/aidl
           if [ -f "$AIDL_PATH" ]; then
             echo "✅ Aidl工具已找到：$AIDL_PATH"
           else
-            echo "❌ Aidl工具缺失，Build-Tools目录："
-            ls -la $BUILDOZER_SDK_PATH/build-tools/
+            echo "❌ Aidl工具缺失，33.0.2目录内容："
+            ls -la $BUILDOZER_SDK_PATH/build-tools/33.0.2/
             exit 1
           fi
           
