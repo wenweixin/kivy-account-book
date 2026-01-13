@@ -16,6 +16,7 @@ jobs:
     timeout-minutes: 60
     env:
       BUILDOZER_LOG_LEVEL: 2
+      # 关键修正：直接指向解压后的原生目录名
       ANDROIDNDK: /home/runner/.buildozer/android/platform/android-ndk-r21e
       ANDROIDSDK: /home/runner/.buildozer/android/platform/android-sdk
       ANDROIDAPI: 21
@@ -43,22 +44,21 @@ jobs:
           echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> $GITHUB_ENV
           echo "PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH" >> $GITHUB_ENV
 
-      - name: 安装Python依赖（升级兼容版本，解决pyjnius编译错误）
+      - name: 安装Python依赖（升级兼容版本）
         run: |
           python3 -m pip install --upgrade pip setuptools wheel
           pip install --upgrade pip
-          # 关键修改：升级pyjnius到1.6.1（兼容Python 3.10），调整Cython/plyer版本
           pip3 install --upgrade buildozer cython==3.0.10 kivy==2.1.0
           pip3 install git+https://github.com/kivy/python-for-android.git@master
-          # 兼容版本组合：pyjnius==1.6.1 + plyer==2.1.0（适配Python 3.10）
           pip3 install pyjnius==1.6.1 plyer==2.1.0
 
-      - name: 配置Android SDK/NDK环境（安装NDK r21e）
+      - name: 配置Android SDK/NDK环境（修正NDK目录名）
         run: |
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
           export PATH=$JAVA_HOME/bin:$PATH
           
           BUILDOZER_SDK_PATH="/home/runner/.buildozer/android/platform/android-sdk"
+          # 关键修正：NDK解压后的原生目录名
           BUILDOZER_NDK_PATH="/home/runner/.buildozer/android/platform/android-ndk-r21e"
           mkdir -p $BUILDOZER_SDK_PATH $BUILDOZER_NDK_PATH
           
@@ -87,16 +87,17 @@ jobs:
           # 安装兼容版本的platform-tools和build-tools
           echo y | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "platform-tools" "build-tools;30.0.3" "platforms;android-21" --verbose
           
-          # 安装NDK r21e
+          # 安装NDK r21e（关键修正：移除错误的mv命令）
           echo "✅ 安装NDK r21e..."
           NDK_URL="https://dl.google.com/android/repository/android-ndk-r21e-linux-x86_64.zip"
           wget --no-check-certificate $NDK_URL -O android-ndk-r21e.zip
+          # 直接解压到目标目录，无需重命名
           unzip -q -o android-ndk-r21e.zip -d /home/runner/.buildozer/android/platform/
-          mv /home/runner/.buildozer/android/platform/android-ndk-r21e-linux-x86_64 $BUILDOZER_NDK_PATH
+          rm -f android-ndk-r21e.zip
           
-          # 验证NDK
+          # 验证NDK（检查原生解压目录）
           if [ ! -d "$BUILDOZER_NDK_PATH" ]; then
-            echo "❌ NDK r21e安装失败"
+            echo "❌ NDK r21e安装失败，解压后的目录列表："
             ls -la /home/runner/.buildozer/android/platform/
             exit 1
           fi
@@ -113,7 +114,7 @@ jobs:
           
           chmod -R 777 /home/runner/.buildozer
 
-      - name: 配置Buildozer.spec（指定自定义入口文件+兼容依赖）
+      - name: 配置Buildozer.spec（指定自定义入口文件）
         run: |
           buildozer init
           
@@ -123,7 +124,6 @@ jobs:
           sed -i 's|package.domain = org.test|package.domain = org.example|' buildozer.spec
           sed -i 's|source.include_exts = py,png,jpg,kv,atlas|source.include_exts = py,png,jpg,kv,atlas,ttf|' buildozer.spec
           sed -i 's|# source.include_files = |source.include_files = simhei.ttf|' buildozer.spec
-          # 依赖版本匹配：kivy==2.1.0（和安装的版本一致）
           sed -i 's|requirements = python3,kivy|requirements = python3,kivy==2.1.0,pyjnius==1.6.1,plyer==2.1.0|' buildozer.spec
           
           # 适配降级后的Android配置
@@ -136,9 +136,8 @@ jobs:
           sed -i 's|android.logcat = false|android.logcat = true|' buildozer.spec
           sed -i 's|# android.sdk_path = |android.sdk_path = /home/runner/.buildozer/android/platform/android-sdk|' buildozer.spec
           
-          # 关键修复：指定自定义入口文件（替代默认的main.py）
+          # 关键修复：指定自定义入口文件
           sed -i 's|# main.py = main.py|main.py = account_book.py|' buildozer.spec
-          # 确保入口点正确指向自定义文件
           sed -i 's|# android.entrypoint = org.kivy.android.PythonActivity|android.entrypoint = org.kivy.android.PythonActivity|' buildozer.spec
           sed -i 's|# app.source.dir = .|app.source.dir = .|' buildozer.spec
           sed -i 's|# app.source.include_exts = py,png,jpg,kv,atlas|app.source.include_exts = py,png,jpg,kv,atlas,ttf|' buildozer.spec
@@ -165,7 +164,7 @@ jobs:
           which java && which javac && which sdkmanager && which aidl
           ls -la $ANDROIDNDK
           
-          # 构建并输出详细日志（强制刷新输出，避免截断）
+          # 构建并输出详细日志
           buildozer -v android debug 2>&1 | tee buildozer_full.log
 
       - name: 上传日志和产物（无论成败）
