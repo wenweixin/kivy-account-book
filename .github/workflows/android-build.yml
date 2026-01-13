@@ -57,49 +57,57 @@ jobs:
           pip3 install --upgrade cython==0.29.33
           pip3 install git+https://github.com/kivy/python-for-android.git@master
 
-      # 步骤4：缓存Buildozer依赖
-      - name: 缓存Buildozer依赖
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.buildozer
-            ${{ github.workspace }}/.buildozer
-            ~/.local/share/python-for-android
-            ~/Android/Sdk
-          key: ${{ runner.os }}-buildozer-${{ hashFiles('**/buildozer.spec') }}
-          restore-keys: |
-            ${{ runner.os }}-buildozer-
-
-      # 步骤5：配置安卓SDK许可证
-      - name: 配置安卓SDK许可证
+      # 步骤4：配置Buildozer默认SDK路径+许可证（核心修复）
+      - name: 配置Buildozer专属SDK和许可证
         run: |
-          mkdir -p ~/Android/Sdk/licenses
-          echo "8933bad161af4178b1185d1a37fbf41ea5269c55" > ~/Android/Sdk/licenses/android-sdk-license
-          echo "d975f751698a77b662f1254ddbeed3901e976f5a" > ~/Android/Sdk/licenses/android-sdk-preview-license
-          echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > ~/Android/Sdk/licenses/androidsdk-license
-          export ANDROID_HOME=~/Android/Sdk
-          export PATH=$ANDROID_HOME/tools:$ANDROID_HOME/platform-tools:$PATH
+          # Buildozer默认的SDK根路径
+          BUILDOZER_SDK_PATH="/home/runner/.buildozer/android/platform/android-sdk"
+          mkdir -p $BUILDOZER_SDK_PATH/licenses
+          
+          # 写入许可证（覆盖Buildozer自动下载时的校验）
+          echo "8933bad161af4178b1185d1a37fbf41ea5269c55" > $BUILDOZER_SDK_PATH/licenses/android-sdk-license
+          echo "d975f751698a77b662f1254ddbeed3901e976f5a" > $BUILDOZER_SDK_PATH/licenses/android-sdk-preview-license
+          echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > $BUILDOZER_SDK_PATH/licenses/androidsdk-license
+          
+          # 创建Build-Tools目录
+          mkdir -p $BUILDOZER_SDK_PATH/build-tools
+          
+          # 下载并安装Build-Tools 33.0.2到Buildozer默认路径
+          wget --no-check-certificate https://mirrors.tuna.tsinghua.edu.cn/android/repository/build-tools_r33.0.2-linux.zip -O build-tools.zip || wget --no-check-certificate https://dl.google.com/android/repository/build-tools_r33.0.2-linux.zip -O build-tools.zip
+          unzip -q -o build-tools.zip -d $BUILDOZER_SDK_PATH/build-tools/
+          
+          # 适配android-13目录名，重命名为33.0.2
+          if [ -d "$BUILDOZER_SDK_PATH/build-tools/android-13" ]; then
+            mv $BUILDOZER_SDK_PATH/build-tools/android-13 $BUILDOZER_SDK_PATH/build-tools/33.0.2
+          fi
+          
+          # 确认Aidl存在
+          if [ -f "$BUILDOZER_SDK_PATH/build-tools/33.0.2/aidl" ]; then
+            echo "✅ Aidl已安装到Buildozer默认路径：$BUILDOZER_SDK_PATH/build-tools/33.0.2/aidl"
+          else
+            echo "❌ Aidl安装失败，目录内容："
+            ls -la $BUILDOZER_SDK_PATH/build-tools/
+            exit 1
+          fi
+          
+          # 赋予全权限
+          chmod -R 777 /home/runner/.buildozer
 
-      # 步骤6：初始化并配置Buildozer.spec
+      # 步骤5：初始化并配置Buildozer.spec（强制指定版本和路径）
       - name: 初始化并配置Buildozer.spec
         run: |
           echo "当前工作目录：$(pwd)"
           buildozer init
-          if [ ! -d ".buildozer" ]; then
-            echo "手动创建.buildozer目录"
-            mkdir -p .buildozer/android/platform/python-for-android
-            mkdir -p .buildozer/android/app
-            mkdir -p .buildozer/applibs
-            mkdir -p bin
-          fi
           
-          # 批量修改配置
+          # 批量修改配置，核心是强制指定Build-Tools和SDK路径
           sed -i 's|title = My Application|title = 记账本|' buildozer.spec
           sed -i 's|package.name = myapp|package.name = accountbook|' buildozer.spec
           sed -i 's|package.domain = org.test|package.domain = org.example|' buildozer.spec
           sed -i 's|source.include_exts = py,png,jpg,kv,atlas|source.include_exts = py,png,jpg,kv,atlas,ttf|' buildozer.spec
           sed -i 's|# source.include_files = |source.include_files = simhei.ttf|' buildozer.spec
           sed -i 's|requirements = python3,kivy|requirements = python3,kivy==2.3.0|' buildozer.spec
+          
+          # 关键：强制指定Build-Tools版本为33.0.2，禁止下载36.1
           sed -i 's|# android.build_tools = 33.0.0|android.build_tools = 33.0.2|' buildozer.spec
           sed -i 's|android.ndk = 25b|android.ndk = 25b|' buildozer.spec
           sed -i 's|android.api = 27|android.api = 33|' buildozer.spec
@@ -107,89 +115,24 @@ jobs:
           sed -i 's|android.arch = armeabi-v7a|android.arch = arm64-v8a|' buildozer.spec
           sed -i 's|# android.permissions = |android.permissions = WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE|' buildozer.spec
           sed -i 's|android.logcat = false|android.logcat = false|' buildozer.spec
-          sed -i 's|# android.sdk_path = |android.sdk_path = ~/Android/Sdk|' buildozer.spec
+          
+          # 强制指定Buildozer使用我们配置的SDK路径
+          sed -i 's|# android.sdk_path = |android.sdk_path = /home/runner/.buildozer/android/platform/android-sdk|' buildozer.spec
 
-      # 步骤7：修复目录权限
-      - name: 修复目录权限
-        run: |
-          if [ ! -d "/home/runner/.buildozer" ]; then
-            mkdir -p /home/runner/.buildozer/android/platform/python-for-android
-          fi
-          chmod -R 777 /home/runner/.buildozer
-          chmod -R 777 ${{ github.workspace }}/.buildozer
-          chmod -R 777 ${{ github.workspace }}/bin
-          chmod -R 777 ~/Android/Sdk
-
-      # 步骤8：手动安装Build-Tools 33.0.2（修正下载地址+强化校验）
-      - name: 手动安装Build-Tools 33.0.2
-        run: |
-          export ANDROID_HOME=~/Android/Sdk
-          # 创建Build-Tools目录（确保存在）
-          mkdir -p $ANDROID_HOME/build-tools
-          
-          # 核心修正：恢复带r的正确下载地址（优先清华镜像）
-          BUILD_TOOLS_URL="https://mirrors.tuna.tsinghua.edu.cn/android/repository/build-tools_r33.0.2-linux.zip"
-          BACKUP_URL="https://dl.google.com/android/repository/build-tools_r33.0.2-linux.zip"
-          
-          # 下载并校验文件（确保下载成功）
-          echo "📥 从清华镜像下载Build-Tools 33.0.2..."
-          wget --no-check-certificate $BUILD_TOOLS_URL -O build-tools.zip || (echo "❌ 清华镜像下载失败，尝试谷歌官方地址..." && wget --no-check-certificate $BACKUP_URL -O build-tools.zip)
-          
-          # 校验下载的文件大小（避免空文件）
-          FILE_SIZE=$(stat -c%s "build-tools.zip" 2>/dev/null || echo 0)
-          if [ $FILE_SIZE -lt 1000000 ]; then # 小于1MB则判定为下载失败
-            echo "❌ Build-Tools包下载失败，文件大小：$FILE_SIZE 字节"
-            ls -la build-tools.zip
-            exit 1
-          fi
-          echo "✅ Build-Tools包下载成功，文件大小：$((FILE_SIZE/1024/1024)) MB"
-          
-          # 解压到Build-Tools目录（覆盖已有文件）
-          unzip -q -o build-tools.zip -d $ANDROID_HOME/build-tools/
-          
-          # 查看解压后的实际目录名（调试用）
-          echo "📂 解压后的Build-Tools目录列表："
-          ls -la $ANDROID_HOME/build-tools/
-          
-          # 适配两种目录名：优先android-13，再匹配33.0.2开头
-          if [ -d "$ANDROID_HOME/build-tools/android-13" ]; then
-            BUILD_TOOLS_DIR="android-13"
-            echo "✅ 找到android-13目录（对应Build-Tools 33.0.2）"
-          else
-            BUILD_TOOLS_DIR=$(ls $ANDROID_HOME/build-tools/ | grep "^33.0.2" | head -n1)
-          fi
-          
-          # 校验目录是否存在
-          if [ -z "$BUILD_TOOLS_DIR" ] || [ ! -d "$ANDROID_HOME/build-tools/$BUILD_TOOLS_DIR" ]; then
-            echo "❌ 未找到Build-Tools 33.0.2相关目录，当前目录："
-            ls -la $ANDROID_HOME/build-tools/
-            exit 1
-          fi
-          
-          # 重命名为Buildozer识别的33.0.2-linux
-          mv $ANDROID_HOME/build-tools/$BUILD_TOOLS_DIR $ANDROID_HOME/build-tools/33.0.2-linux
-          
-          # 确认Aidl工具存在
-          AIDL_PATH=$ANDROID_HOME/build-tools/33.0.2-linux/aidl
-          if [ -f "$AIDL_PATH" ]; then
-            echo "✅ Aidl工具已找到：$AIDL_PATH"
-          else
-            echo "❌ Aidl工具缺失，33.0.2-linux目录内容："
-            ls -la $ANDROID_HOME/build-tools/33.0.2-linux/
-            exit 1
-          fi
-
-      # 步骤9：构建安卓APK
+      # 步骤6：构建安卓APK（禁用自动SDK下载）
       - name: 构建安卓APK
         run: |
-          export ANDROID_HOME=~/Android/Sdk
-          export PATH=$ANDROID_HOME/tools:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/33.0.2-linux:$PATH
-          echo "PATH: $PATH"
-          which aidl || echo "⚠️ aidl不在PATH中，但已确认文件存在"
+          # 禁用Buildozer自动下载SDK/NDK
+          export ANDROIDSDK="/home/runner/.buildozer/android/platform/android-sdk"
+          export ANDROIDNDK="/home/runner/.buildozer/android/platform/android-ndk-r25b"
+          export ANDROIDAPI="33"
+          export ANDROID_BUILD_TOOLS="33.0.2"
+          
+          # 构建APK
           buildozer android debug
 
-      # 步骤10：上传APK产物
-      - name: 上传APK到GitHub产物
+      # 步骤7：上传APK产物
+      - name: 上传APK产物
         uses: actions/upload-artifact@v4
         with:
           name: 记账本-安卓APK
