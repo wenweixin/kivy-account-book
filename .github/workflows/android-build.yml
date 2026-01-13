@@ -16,113 +16,92 @@ jobs:
     timeout-minutes: 60
     env:
       BUILDOZER_LOG_LEVEL: 2
-      ANDROIDNDK: /home/runner/.buildozer/android/platform/android-ndk-r25b
+      ANDROIDNDK: /home/runner/.buildozer/android/platform/android-ndk-r21e
       ANDROIDSDK: /home/runner/.buildozer/android/platform/android-sdk
-      ANDROIDAPI: 33
-      ANDROID_BUILD_TOOLS: 33.0.2
+      ANDROIDAPI: 21
+      ANDROID_BUILD_TOOLS: 30.0.3
       JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+      ANDROID_NDK_ROOT: /home/runner/.buildozer/android/platform/android-ndk-r21e
 
     steps:
-      # 步骤1：拉取仓库代码
       - name: 拉取仓库代码
         uses: actions/checkout@v4
 
-      # 步骤2：安装系统依赖+强制配置Java 17为默认版本（修正语法错误）
       - name: 安装系统依赖并配置Java 17
         run: |
           sudo apt update -y
-          # 修正：所有依赖放在同一行，移除多余换行和注释，避免shell解析错误
           sudo apt install -y git zip unzip openjdk-17-jdk python3-pip python3-dev autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev libsqlite3-dev build-essential liblzma-dev libbz2-dev libreadline-dev expect lib32z1-dev lib32stdc++6 libjpeg-dev libltdl-dev
           
-          # 强制将Java 17设为系统默认版本
+          # 强制Java 17
           sudo update-alternatives --install /usr/bin/java java /usr/lib/jvm/java-17-openjdk-amd64/bin/java 1
           sudo update-alternatives --install /usr/bin/javac javac /usr/lib/jvm/java-17-openjdk-amd64/bin/javac 1
           sudo update-alternatives --set java /usr/lib/jvm/java-17-openjdk-amd64/bin/java
           sudo update-alternatives --set javac /usr/lib/jvm/java-17-openjdk-amd64/bin/javac
           
-          # 验证Java版本
           java -version
           javac -version
-          
-          # 配置JAVA_HOME全局生效
           echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> $GITHUB_ENV
           echo "PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH" >> $GITHUB_ENV
 
-      # 步骤3：升级pip并安装核心Python依赖
-      - name: 安装Python依赖
+      - name: 安装Python依赖（降级Kivy到2.1.0）
         run: |
           python3 -m pip install --upgrade pip setuptools wheel
           pip install --upgrade pip
-          pip3 install --upgrade buildozer
-          pip3 install --upgrade cython==0.29.33
+          pip3 install --upgrade buildozer cython==0.29.33 kivy==2.1.0
           pip3 install git+https://github.com/kivy/python-for-android.git@master
-          pip3 install pyjnius==1.4.2 plyer==2.1.0
+          pip3 install pyjnius==1.3.0 plyer==2.0.0
 
-      # 步骤4：完整配置Android SDK/NDK环境（显式安装NDK）
-      - name: 配置完整Android SDK/NDK环境
+      - name: 配置Android SDK/NDK环境（安装NDK r21e）
         run: |
-          # 加载Java 17环境变量
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
           export PATH=$JAVA_HOME/bin:$PATH
           
-          # Buildozer默认SDK/NDK根路径
           BUILDOZER_SDK_PATH="/home/runner/.buildozer/android/platform/android-sdk"
-          BUILDOZER_NDK_PATH="/home/runner/.buildozer/android/platform/android-ndk-r25b"
+          BUILDOZER_NDK_PATH="/home/runner/.buildozer/android/platform/android-ndk-r21e"
           mkdir -p $BUILDOZER_SDK_PATH $BUILDOZER_NDK_PATH
           
-          # 1. 安装SDK Command-line Tools
+          # 安装Command-line Tools
           CMDLINE_TOOLS_URL="https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
           wget --no-check-certificate $CMDLINE_TOOLS_URL -O cmdline-tools.zip
-          
-          # 创建临时解压目录
           mkdir -p tmp_cmdline_tools
           unzip -q -o cmdline-tools.zip -d tmp_cmdline_tools/
-          
-          # 移动到latest目录
           mkdir -p $BUILDOZER_SDK_PATH/cmdline-tools/latest
           cp -r tmp_cmdline_tools/*/* $BUILDOZER_SDK_PATH/cmdline-tools/latest/ || cp -r tmp_cmdline_tools/* $BUILDOZER_SDK_PATH/cmdline-tools/latest/
           rm -rf tmp_cmdline_tools cmdline-tools.zip
           
-          # 2. 创建sdkmanager软链接适配旧路径
+          # 创建sdkmanager软链接
           mkdir -p $BUILDOZER_SDK_PATH/tools/bin
           ln -s $BUILDOZER_SDK_PATH/cmdline-tools/latest/bin/sdkmanager $BUILDOZER_SDK_PATH/tools/bin/sdkmanager
           ln -s $BUILDOZER_SDK_PATH/cmdline-tools/latest/bin/avdmanager $BUILDOZER_SDK_PATH/tools/bin/avdmanager
-          ls -la $BUILDOZER_SDK_PATH/tools/bin/
           
-          # 3. 配置环境变量
+          # 环境变量
           export ANDROID_HOME=$BUILDOZER_SDK_PATH
           export ANDROID_SDK_ROOT=$BUILDOZER_SDK_PATH
           export PATH=$BUILDOZER_SDK_PATH/cmdline-tools/latest/bin:$BUILDOZER_SDK_PATH/tools/bin:$PATH
           
-          # 4. 自动接受所有SDK许可证
+          # 接受许可证
           echo y | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH --licenses || true
           
-          # 5. 安装platform-tools和build-tools
-          echo y | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "platform-tools" --verbose
-          if ! echo y | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "build-tools;33.0.2" --verbose; then
-            wget --no-check-certificate https://mirrors.tuna.tsinghua.edu.cn/android/repository/build-tools_r33.0.2-linux.zip -O build-tools.zip
-            mkdir -p $BUILDOZER_SDK_PATH/build-tools
-            unzip -q -o build-tools.zip -d $BUILDOZER_SDK_PATH/build-tools/
-            if [ -d "$BUILDOZER_SDK_PATH/build-tools/android-13" ]; then
-              mv $BUILDOZER_SDK_PATH/build-tools/android-13 $BUILDOZER_SDK_PATH/build-tools/33.0.2
-            fi
-          fi
+          # 安装兼容版本的platform-tools和build-tools
+          echo y | sdkmanager --sdk_root=$BUILDOZER_SDK_PATH "platform-tools" "build-tools;30.0.3" "platforms;android-21" --verbose
           
-          # 6. 显式安装NDK r25b
-          echo "✅ 显式安装Android NDK r25b..."
-          NDK_URL="https://dl.google.com/android/repository/android-ndk-r25b-linux.zip"
-          wget --no-check-certificate $NDK_URL -O android-ndk-r25b.zip
-          unzip -q -o android-ndk-r25b.zip -d /home/runner/.buildozer/android/platform/
-          # 验证NDK路径
+          # 安装NDK r21e
+          echo "✅ 安装NDK r21e..."
+          NDK_URL="https://dl.google.com/android/repository/android-ndk-r21e-linux-x86_64.zip"
+          wget --no-check-certificate $NDK_URL -O android-ndk-r21e.zip
+          unzip -q -o android-ndk-r21e.zip -d /home/runner/.buildozer/android/platform/
+          mv /home/runner/.buildozer/android/platform/android-ndk-r21e-linux-x86_64 $BUILDOZER_NDK_PATH
+          
+          # 验证NDK
           if [ ! -d "$BUILDOZER_NDK_PATH" ]; then
-            echo "❌ NDK安装失败，目录不存在：$BUILDOZER_NDK_PATH"
+            echo "❌ NDK r21e安装失败"
             ls -la /home/runner/.buildozer/android/platform/
             exit 1
           fi
-          echo "✅ NDK安装成功：$BUILDOZER_NDK_PATH"
+          echo "✅ NDK r21e安装成功：$BUILDOZER_NDK_PATH"
           
-          # 7. 验证Aidl和NDK
-          AIDL_PATH=$BUILDOZER_SDK_PATH/build-tools/33.0.2/aidl
+          # 验证Aidl
+          AIDL_PATH=$BUILDOZER_SDK_PATH/build-tools/30.0.3/aidl
           if [ -f "$AIDL_PATH" ]; then
             echo "✅ Aidl工具已找到：$AIDL_PATH"
           else
@@ -130,64 +109,63 @@ jobs:
             exit 1
           fi
           
-          # 赋予全权限
           chmod -R 777 /home/runner/.buildozer
 
-      # 步骤5：初始化并配置Buildozer.spec（开启详细日志）
-      - name: 初始化并配置Buildozer.spec
+      - name: 配置Buildozer.spec（关键：指定自定义入口文件account_book.py）
         run: |
           buildozer init
           
-          # 批量修改配置
+          # 基础配置
           sed -i 's|title = My Application|title = 记账本|' buildozer.spec
           sed -i 's|package.name = myapp|package.name = accountbook|' buildozer.spec
           sed -i 's|package.domain = org.test|package.domain = org.example|' buildozer.spec
           sed -i 's|source.include_exts = py,png,jpg,kv,atlas|source.include_exts = py,png,jpg,kv,atlas,ttf|' buildozer.spec
           sed -i 's|# source.include_files = |source.include_files = simhei.ttf|' buildozer.spec
-          sed -i 's|requirements = python3,kivy|requirements = python3,kivy==2.3.0|' buildozer.spec
+          sed -i 's|requirements = python3,kivy|requirements = python3,kivy==2.1.0|' buildozer.spec
           
-          # 强制指定版本
-          sed -i 's|# android.build_tools = 33.0.0|android.build_tools = 33.0.2|' buildozer.spec
-          sed -i 's|android.ndk = 25b|android.ndk = 25b|' buildozer.spec
-          sed -i 's|android.api = 27|android.api = 33|' buildozer.spec
-          sed -i 's|android.ndk_api = 21|android.ndk_api = 25|' buildozer.spec
-          sed -i 's|android.arch = armeabi-v7a|android.arch = arm64-v8a|' buildozer.spec
+          # 适配降级后的Android配置
+          sed -i 's|# android.build_tools = 33.0.0|android.build_tools = 30.0.3|' buildozer.spec
+          sed -i 's|android.ndk = 25b|android.ndk = 21e|' buildozer.spec
+          sed -i 's|android.api = 27|android.api = 21|' buildozer.spec
+          sed -i 's|android.ndk_api = 21|android.ndk_api = 21|' buildozer.spec
+          sed -i 's|android.arch = arm64-v8a|android.arch = armeabi-v7a|' buildozer.spec
           sed -i 's|# android.permissions = |android.permissions = WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE|' buildozer.spec
           sed -i 's|android.logcat = false|android.logcat = true|' buildozer.spec
           sed -i 's|# android.sdk_path = |android.sdk_path = /home/runner/.buildozer/android/platform/android-sdk|' buildozer.spec
           
-          # 开启详细日志
+          # 关键修复：指定自定义入口文件（替代默认的main.py）
+          sed -i 's|# main.py = main.py|main.py = account_book.py|' buildozer.spec
+          # 确保入口点正确指向自定义文件
+          sed -i 's|# android.entrypoint = org.kivy.android.PythonActivity|android.entrypoint = org.kivy.android.PythonActivity|' buildozer.spec
+          sed -i 's|# app.source.dir = .|app.source.dir = .|' buildozer.spec
+          sed -i 's|# app.source.include_exts = py,png,jpg,kv,atlas|app.source.include_exts = py,png,jpg,kv,atlas,ttf|' buildozer.spec
+          
+          # 详细日志+优化构建
           sed -i 's|# log_level = 1|log_level = 2|' buildozer.spec
-          # 优化构建参数
           echo "p4a.local_recipes = ./" >> buildozer.spec
-          echo "p4a.concurrent_build = 4" >> buildozer.spec
+          echo "p4a.concurrent_build = 2" >> buildozer.spec
+          echo "p4a.javac_args = -J-Xmx2048m" >> buildozer.spec
           echo "p4a.ignore_setup_py = false" >> buildozer.spec
 
-      # 步骤6：构建安卓APK（详细日志）
-      - name: 构建安卓APK（详细日志）
+      - name: 构建APK（详细日志）
         run: |
-          # 配置完整环境变量
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
           export ANDROID_HOME="/home/runner/.buildozer/android/platform/android-sdk"
           export ANDROID_SDK_ROOT=$ANDROID_HOME
-          export ANDROIDNDK="/home/runner/.buildozer/android/platform/android-ndk-r25b"
-          export ANDROIDAPI="33"
-          export ANDROID_BUILD_TOOLS="33.0.2"
-          export PATH=$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/tools/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/33.0.2:$PATH
+          export ANDROIDNDK="/home/runner/.buildozer/android/platform/android-ndk-r21e"
+          export ANDROIDAPI="21"
+          export ANDROID_BUILD_TOOLS="30.0.3"
+          export PATH=$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/tools/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/30.0.3:$PATH
           
-          # 验证所有工具路径
-          echo "✅ 验证工具路径："
-          which java
-          which javac
-          which sdkmanager
-          which aidl
+          # 验证工具
+          echo "✅ 工具验证："
+          which java && which javac && which sdkmanager && which aidl
           ls -la $ANDROIDNDK
           
-          # 构建APK
-          buildozer -v android debug
+          # 构建并输出详细日志（强制刷新输出，避免截断）
+          buildozer -v android debug 2>&1 | tee buildozer_full.log
 
-      # 步骤7：上传构建日志和产物
-      - name: 上传构建日志和产物
+      - name: 上传日志和产物（无论成败）
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -196,4 +174,5 @@ jobs:
             ${{ github.workspace }}/bin/
             ${{ github.workspace }}/.buildozer/logs/
             ${{ github.workspace }}/buildozer.spec
+            ${{ github.workspace }}/buildozer_full.log
           retention-days: 14
