@@ -918,15 +918,10 @@ class SearchPage(BoxLayout):
             return
 
         for i, record in enumerate(reversed(records)):
-            # 交替背景色
-            bg_color = (1, 1, 1, 1) if i % 2 == 0 else (0.98, 0.98, 0.98, 1)
-
+            # 创建纯内容的BoxLayout，不添加背景色
             record_box = BoxLayout(orientation='horizontal', size_hint_y=None, height=60, padding=10)
-            with record_box.canvas.before:
-                Color(*bg_color)
-                rect = RoundedRectangle(pos=record_box.pos, size=record_box.size, radius=[8])
-                record_box.bind(pos=lambda w, x: setattr(rect, 'pos', w.pos),
-                                size=lambda w, x: setattr(rect, 'size', w.size))
+
+            # 不再绘制背景矩形，保持透明
 
             record_text = (
                 f"[color=#3399CC]{record['time']}[/color] | "
@@ -937,7 +932,7 @@ class SearchPage(BoxLayout):
 
             record_label = Label(
                 text=record_text,
-                font_size=SMALL_CONTENT_FONT_SIZE,  # 调整字体大小
+                font_size=SMALL_CONTENT_FONT_SIZE,
                 color=TEXT_COLOR,
                 markup=True,
                 halign='left',
@@ -1025,15 +1020,10 @@ class RecordsPage(BoxLayout):
             return
 
         for i, record in enumerate(reversed(records)):
-            # 交替背景色
-            bg_color = (1, 1, 1, 1) if i % 2 == 0 else (0.98, 0.98, 0.98, 1)
-
+            # 创建纯内容的BoxLayout，不添加背景色
             record_box = BoxLayout(orientation='horizontal', size_hint_y=None, height=60, padding=10)
-            with record_box.canvas.before:
-                Color(*bg_color)
-                rect = RoundedRectangle(pos=record_box.pos, size=record_box.size, radius=[8])
-                record_box.bind(pos=lambda w, x: setattr(rect, 'pos', w.pos),
-                                size=lambda w, x: setattr(rect, 'size', w.size))
+
+            # 不再绘制背景矩形，保持透明
 
             record_text = (
                 f"[color=#3399CC]{record['time']}[/color] | "
