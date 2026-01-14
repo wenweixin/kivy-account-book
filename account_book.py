@@ -50,7 +50,7 @@ def register_chinese_font():
     local_font = "simhei.ttf"
     if os.path.exists(local_font):
         LabelBase.register(DEFAULT_FONT, local_font)
-        print(f"✅ 成功加载本地中文字体：{local_font}")
+        print(f"[表情] 成功加载本地中文字体：{local_font}")
         return
 
     # 2. 备用：读取系统字体（仅本地运行时生效）
@@ -82,9 +82,9 @@ def register_chinese_font():
     # 注册字体
     if font_path:
         LabelBase.register(DEFAULT_FONT, font_path)
-        print(f"✅ 成功加载系统中文字体：{font_path}")
+        print(f"[表情] 成功加载系统中文字体：{font_path}")
     else:
-        print("❌ 未找到中文字体，仍可能出现乱码，但已启用UTF-8编码")
+        print("[表情] 未找到中文字体，仍可能出现乱码，但已启用UTF-8编码")
 
 
 # 执行字体注册
@@ -269,11 +269,16 @@ class BarChartWidget(FloatLayout):
         if max_amount == 0:
             max_amount = 1
 
-        # 设置图表区域
-        chart_left = self.x + 40  # 减少左边距
-        chart_right = self.right - 20
-        chart_top = self.top - 50
-        chart_bottom = self.y + 140  # 增加底部边距以容纳X轴标签和年份
+        # 设置图表区域 - 使用整个组件的空间，并留出适当边距
+        margin_left = 150  # 左边距，为月份标签预留空间
+        margin_right = 50  # 右边距
+        margin_top = 50  # 上边距
+        margin_bottom = 80  # 下边距，为年份标签预留空间
+
+        chart_left = self.x + margin_left
+        chart_right = self.right - margin_right
+        chart_top = self.top - margin_top
+        chart_bottom = self.y + margin_bottom
         chart_width = chart_right - chart_left
         chart_height = chart_top - chart_bottom
 
@@ -282,22 +287,25 @@ class BarChartWidget(FloatLayout):
             Color(1, 1, 1, 1)
             Rectangle(pos=(chart_left, chart_bottom), size=(chart_width, chart_height))
 
-            # 绘制网格线（不显示纵坐标数字）
+            # 绘制网格线（垂直线）
             Color(0.9, 0.9, 0.9, 1)
             for i in range(5):
-                y_pos = chart_bottom + (chart_height / 4) * i
-                Line(points=[chart_left, y_pos, chart_right, y_pos], width=1)
+                x_pos = chart_left + (chart_width / 4) * i
+                Line(points=[x_pos, chart_bottom, x_pos, chart_top], width=1)
 
-        # 绘制柱状图
+        # 绘制水平柱状图
         num_bars = len(self.data)
         if num_bars > 0:
-            bar_width = min(chart_width / (num_bars * 1.3), 60)  # 减小柱子宽度
-            space_between_bars = (chart_width - num_bars * bar_width) / (num_bars + 1) if num_bars > 0 else 0
+            # 计算柱子高度，确保所有柱子都能完整显示
+            bar_height = chart_height / num_bars * 0.8  # 每个柱子占用80%的分配空间
+            space_between_bars = chart_height / num_bars * 0.2  # 柱子之间的间距
 
             for i, (time_period, amount) in enumerate(self.data):
-                bar_height = (amount / max_amount) * chart_height * 0.9  # 留一点顶部空间
-                bar_x = chart_left + space_between_bars + i * (bar_width + space_between_bars)
-                bar_y = chart_bottom
+                bar_width = (amount / max_amount) * chart_width * 0.9  # 水平方向的宽度
+                bar_x = chart_left  # 从左边开始
+                # 从上到下排列，注意索引顺序
+                bar_y = chart_bottom + chart_height - (i + 1) * (
+                            bar_height + space_between_bars) + space_between_bars / 2
 
                 # 绘制柱子
                 with self.canvas:
@@ -308,42 +316,42 @@ class BarChartWidget(FloatLayout):
                     Color(0.1, 0.4, 0.7, 1)
                     Line(rectangle=(bar_x, bar_y, bar_width, bar_height), width=1)
 
-                # 创建标签显示金额（在柱子顶部，添加"元"字符）
+                # 创建标签显示金额（在柱子右侧）
                 amount_label = Label(
                     text=f"{amount:.2f}元",
-                    font_size=SMALL_CONTENT_FONT_SIZE-5,  # 减小字体
+                    font_size=SMALL_CONTENT_FONT_SIZE - 17,  # 与月份标签字体大小相同
                     size_hint=(None, None),
-                    width=min(bar_width, 60),
-                    height=25,
-                    halign='center',
+                    width=100,
+                    height=min(bar_height, 60),
+                    halign='left',
                     font_name=DEFAULT_FONT,
                     color=TEXT_COLOR
                 )
-                amount_label.center_x = bar_x + bar_width / 2
-                amount_label.y = bar_y + bar_height + 5
+                amount_label.x = bar_x + bar_width + 5
+                amount_label.center_y = bar_y + bar_height / 2
                 self.add_widget(amount_label)
 
-                # 创建标签显示月份（在柱子底部）
+                # 创建标签显示时间（在柱子左侧，固定在最左边）
                 time_label = Label(
                     text=time_period,
-                    font_size=SMALL_CONTENT_FONT_SIZE-5,  # 减小字体
+                    font_size=SMALL_CONTENT_FONT_SIZE - 12,  # 月份标签字体大小
                     size_hint=(None, None),
-                    width=min(bar_width, 60),
-                    height=30,
-                    halign='center',
+                    width=120,
+                    height=min(bar_height, 60),
+                    halign='right',
                     shorten=True,
-                    text_size=(min(bar_width, 60), 30),
+                    text_size=(120, min(bar_height, 60)),
                     font_name=DEFAULT_FONT,
                     color=TEXT_COLOR
                 )
-                time_label.center_x = bar_x + bar_width / 2
-                time_label.y = chart_bottom - 35
+                time_label.x = self.x + 10  # 固定在最左边，而不是柱子的左边
+                time_label.center_y = bar_y + bar_height / 2
                 self.add_widget(time_label)
 
-                # 绘制X轴标签线
+                # 绘制Y轴标签线（连接月份标签和柱子）
                 with self.canvas:
                     Color(0.5, 0.5, 0.5, 1)
-                    Line(points=[bar_x + bar_width / 2, chart_bottom - 5, bar_x + bar_width / 2, chart_bottom], width=1)
+                    Line(points=[time_label.right, time_label.center_y, bar_x, bar_y + bar_height / 2], width=1)
 
             # 添加当前年份显示
             current_year = datetime.now().year
@@ -358,7 +366,7 @@ class BarChartWidget(FloatLayout):
                 color=TEXT_COLOR
             )
             year_label.center_x = self.center_x
-            year_label.y = chart_bottom - 70  # 在月份标签下方
+            year_label.y = self.y + 20  # 在底部边缘上方
             self.add_widget(year_label)
 
 
