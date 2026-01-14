@@ -13,6 +13,7 @@ from kivy.config import Config
 from kivy.graphics import Color, Rectangle, RoundedRectangle, Line
 from kivy.uix.tabbedpanel import TabbedPanel, TabbedPanelItem
 from kivy.uix.floatlayout import FloatLayout
+from kivy.uix.popup import Popup
 import json
 import os
 import sys
@@ -112,8 +113,8 @@ def get_data_file_path():
 DATA_FILE = get_data_file_path()
 # 支出分类选项
 EXPENSE_CATEGORIES = ["购物", "吃饭", "房租", "交通", "礼物"]
-# 时间筛选类型（只保留月份）
-TIME_FILTER_TYPES = ["本月", "按月统计"]
+# 时间筛选类型（扩展为年、月、日）
+TIME_FILTER_TYPES = ["今日", "本月", "本年", "自定义日期", "按月统计"]
 # 添加总和选项
 EXPENSE_CATEGORIES_WITH_TOTAL = EXPENSE_CATEGORIES + ["总和"]
 
@@ -160,9 +161,20 @@ def save_record(category: str, remark: str, amount: float) -> bool:
 
 def filter_records_by_time(records: List[Dict], filter_type: str, target_value: str = "") -> List[Dict]:
     """按时间筛选记录"""
-    if filter_type == "本月":
+    if filter_type == "今日":
+        today = datetime.now().strftime("%Y-%m-%d")
+        return [r for r in records if r["date"] == today]
+    elif filter_type == "本月":
         current_month = datetime.now().strftime("%Y-%m")
         return [r for r in records if r["month"] == current_month]
+    elif filter_type == "本年":
+        current_year = datetime.now().strftime("%Y")
+        return [r for r in records if r["year"] == current_year]
+    elif filter_type == "自定义日期":
+        # target_value 应该是 YYYY-MM-DD 格式的字符串
+        if target_value:
+            return [r for r in records if r["date"] == target_value]
+        return records
     elif filter_type == "按月统计":
         return records
     else:
@@ -305,7 +317,7 @@ class BarChartWidget(FloatLayout):
                 bar_x = chart_left  # 从左边开始
                 # 从上到下排列，注意索引顺序
                 bar_y = chart_bottom + chart_height - (i + 1) * (
-                            bar_height + space_between_bars) + space_between_bars / 2
+                        bar_height + space_between_bars) + space_between_bars / 2
 
                 # 绘制柱子
                 with self.canvas:
@@ -525,7 +537,12 @@ class InputPage(BoxLayout):
             height=50,
             font_name=DEFAULT_FONT
         )
+        # 添加筛选类型变化事件监听
+        self.filter_spinner.bind(text=self.on_filter_type_change)
         stats_layout.add_widget(self.filter_spinner)
+
+        # 创建日期输入框容器
+        self.date_input_container = BoxLayout(orientation='horizontal', size_hint_y=None, height=50)
 
         self.filter_input = TextInput(
             hint_text="例：2024-12-01",
@@ -537,7 +554,8 @@ class InputPage(BoxLayout):
             foreground_color=TEXT_COLOR,
             font_name=DEFAULT_FONT
         )
-        stats_layout.add_widget(self.filter_input)
+        self.date_input_container.add_widget(self.filter_input)
+        stats_layout.add_widget(self.date_input_container)
 
         filter_btn = StyledButton(
             text="统计",
@@ -581,14 +599,82 @@ class InputPage(BoxLayout):
     def filter_and_calculate(self, instance):
         """按时间筛选并计算总支出"""
         filter_type = self.filter_spinner.text
-        filter_value = self.filter_input.text.strip()
+        filter_value = ""
+
+        # 根据筛选类型获取正确的筛选值
+        if filter_type == "自定义日期":
+            filter_value = self.filter_input.text.strip()
+            if not self.validate_date_format(filter_value):
+                self.result_label.text = "错误：日期格式应为 YYYY-MM-DD"
+                self.result_label.color = ERROR_COLOR
+                return
+        # 其他类型无需额外输入值
 
         filtered_records = filter_records_by_time(self.current_records, filter_type, filter_value)
         total = calculate_total(filtered_records)
 
-        self.parent_app.refresh_all_pages()  # 通知其他页面更新数据
-        self.result_label.text = f"{filter_type}支出：{total} 元"
+        self.parent_app.refresh_all_pages()
+
+        # 根据筛选类型显示不同的结果文本
+        display_text = self.get_filter_display_text(filter_type, filter_value)
+        self.result_label.text = f"{display_text}支出：{total} 元"
         self.result_label.color = PRIMARY_COLOR
+
+    def on_filter_type_change(self, spinner, text):
+        """处理筛选类型变化"""
+        if text == "自定义日期":
+            # 显示日期输入框
+            self.date_input_container.clear_widgets()
+            self.filter_input = TextInput(
+                hint_text="请输入日期(YYYY-MM-DD)",
+                font_size=CONTENT_FONT_SIZE,
+                size_hint_x=1,
+                size_hint_y=None,
+                height=50,
+                background_color=(0.98, 0.98, 0.98, 1),
+                foreground_color=TEXT_COLOR,
+                font_name=DEFAULT_FONT
+            )
+            self.date_input_container.add_widget(self.filter_input)
+        else:
+            # 对于"今日"、"本月"、"本年"，不需要额外输入
+            self.date_input_container.clear_widgets()
+            placeholder_label = Label(
+                text="自动选择",
+                font_size=CONTENT_FONT_SIZE,
+                size_hint_x=1,
+                size_hint_y=None,
+                height=50,
+                color=TEXT_COLOR,
+                halign="left",
+                font_name=DEFAULT_FONT
+            )
+            self.date_input_container.add_widget(placeholder_label)
+
+    def validate_date_format(self, date_str):
+        """验证日期格式是否为 YYYY-MM-DD"""
+        if not date_str:
+            return False
+        try:
+            datetime.strptime(date_str, "%Y-%m-%d")
+            return True
+        except ValueError:
+            return False
+
+    def get_filter_display_text(self, filter_type, filter_value=""):
+        """获取筛选类型的显示文本"""
+        if filter_type == "自定义日期":
+            return f"日期({filter_value})"
+        elif filter_type == "今日":
+            return "今日"
+        elif filter_type == "本月":
+            return "本月"
+        elif filter_type == "本年":
+            return "本年"
+        elif filter_type == "按月统计":
+            return "累计"
+        else:
+            return filter_type
 
     def _update_rect(self, instance, value):
         self.rect.pos = instance.pos
