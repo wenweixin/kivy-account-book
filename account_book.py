@@ -17,7 +17,7 @@ from kivy.uix.popup import Popup
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict
 from collections import defaultdict
 
@@ -31,12 +31,12 @@ TEXT_COLOR = (0.2, 0.2, 0.2, 1)  # 文字色
 TAB_BG_COLOR = (0.85, 0.85, 0.85, 1)  # Tab背景色
 
 # 添加字体大小常量（针对移动设备优化）
-TITLE_FONT_SIZE = 28  # 标题字体
-HEADER_FONT_SIZE = 28  # 表头字体
-LABEL_FONT_SIZE = 28  # 标签字体
-BUTTON_FONT_SIZE = 28  # 按钮字体
-CONTENT_FONT_SIZE = 28  # 内容字体
-SMALL_CONTENT_FONT_SIZE = 28  # 小内容字体
+TITLE_FONT_SIZE = 36  # 标题字体 - 增加到36
+HEADER_FONT_SIZE = 36  # 表头字体 - 增加到36
+LABEL_FONT_SIZE = 32  # 标签字体 - 增加到32
+BUTTON_FONT_SIZE = 32  # 按钮字体 - 增加到32
+CONTENT_FONT_SIZE = 32  # 内容字体 - 增加到32
+SMALL_CONTENT_FONT_SIZE = 32  # 小内容字体 - 增加到32
 
 # ======== 核心修复：解决中文乱码 ========
 # 1. 设置Kivy默认编码为UTF-8
@@ -229,6 +229,68 @@ def get_monthly_statistics(records: List[Dict], category_filter: str):
     return result
 
 
+def get_daily_statistics(records: List[Dict], category_filter: str):
+    """获取每日统计数据（最近20天）"""
+    # 首先根据分类过滤数据
+    if category_filter != "总和":
+        filtered_records = [r for r in records if r["category"] == category_filter]
+    else:
+        filtered_records = records
+
+    # 计算最近20天的日期
+    daily_totals = defaultdict(float)
+    for i in range(20):  # 修改为20天
+        day_ago = datetime.now() - timedelta(days=i)
+        day_str = day_ago.strftime("%m-%d")
+        daily_totals[day_str] = 0.0
+
+    # 聚合数据
+    for record in filtered_records:
+        date = record["date"]
+        date_part = date.split("-")[1] + "-" + date.split("-")[2]  # MM-DD
+        if date_part in daily_totals:
+            daily_totals[date_part] += record["amount"]
+
+    # 生成结果，从最近一天开始
+    result = []
+    for i in range(20):  # 修改为20天
+        day_ago = datetime.now() - timedelta(days=i)
+        day_str = day_ago.strftime("%m-%d")
+        result.append((f"{day_str}", daily_totals[day_str]))
+
+    return result
+
+
+def get_yearly_statistics(records: List[Dict], category_filter: str):
+    """获取年度统计数据（最近10年）"""
+    # 首先根据分类过滤数据
+    if category_filter != "总和":
+        filtered_records = [r for r in records if r["category"] == category_filter]
+    else:
+        filtered_records = records
+
+    # 计算最近10年的年份
+    current_year = datetime.now().year
+    yearly_totals = {}
+    for i in range(10):
+        year = current_year - i
+        yearly_totals[str(year)] = 0.0
+
+    # 聚合数据
+    for record in filtered_records:
+        year = record["year"]
+        if year in yearly_totals:
+            yearly_totals[year] += record["amount"]
+
+    # 生成结果，从最近一年开始
+    result = []
+    for i in range(10):
+        year = str(current_year - i)
+        result.append((f"{year}", yearly_totals[year]))
+
+    return result
+
+
 # 自定义按钮类
 class StyledButton(Button):
     def __init__(self, **kwargs):
@@ -331,7 +393,7 @@ class BarChartWidget(FloatLayout):
                 # 创建标签显示金额（在柱子右侧）
                 amount_label = Label(
                     text=f"{amount:.2f}元",
-                    font_size=SMALL_CONTENT_FONT_SIZE - 17,  # 与月份标签字体大小相同
+                    font_size=SMALL_CONTENT_FONT_SIZE - 7,  # 与月份标签字体大小相同
                     size_hint=(None, None),
                     width=100,
                     height=min(bar_height, 60),
@@ -346,7 +408,7 @@ class BarChartWidget(FloatLayout):
                 # 创建标签显示时间（在柱子左侧，固定在最左边）
                 time_label = Label(
                     text=time_period,
-                    font_size=SMALL_CONTENT_FONT_SIZE - 12,  # 月份标签字体大小
+                    font_size=SMALL_CONTENT_FONT_SIZE - 7,  # 月份标签字体大小
                     size_hint=(None, None),
                     width=120,
                     height=min(bar_height, 60),
@@ -388,8 +450,8 @@ class InputPage(BoxLayout):
         super().__init__(**kwargs)
         self.parent_app = parent_app
         self.orientation = "vertical"
-        self.padding = 0  # 改为0，消除内边距
-        self.spacing = 0  # 改为0，消除间距
+        self.padding = 20  # 增加内边距
+        self.spacing = 10  # 增加间距
 
         # 设置整体背景
         with self.canvas.before:
@@ -399,12 +461,12 @@ class InputPage(BoxLayout):
 
         # ========== 1. 记账输入区域 - 优化样式 ==========
         input_layout = self.create_input_section()
-        input_layout.size_hint_y = 0.5  # 分配50%高度
+        input_layout.size_hint_y = 0.6  # 增加到60%高度
         self.add_widget(input_layout)
 
         # ========== 2. 时间筛选统计区域 ==========
         filter_layout = self.create_stats_section()
-        filter_layout.size_hint_y = 0.2  # 分配20%高度
+        filter_layout.size_hint_y = 0.25  # 调整到25%高度
         self.add_widget(filter_layout)
 
         # ========== 3. 统计结果展示 ==========
@@ -412,7 +474,7 @@ class InputPage(BoxLayout):
             text="总支出：0.00 元",
             font_size=TITLE_FONT_SIZE,
             color=ERROR_COLOR,
-            size_hint_y=0.1,  # 分配10%高度
+            size_hint_y=0.15,  # 调整到15%高度
             halign="center",
             bold=True,
             font_name=DEFAULT_FONT
@@ -424,41 +486,41 @@ class InputPage(BoxLayout):
 
     def create_input_section(self):
         # 创建带边框的卡片式布局
-        card_layout = BoxLayout(orientation='vertical', padding=10)
+        card_layout = BoxLayout(orientation='vertical', padding=20)  # 增加内边距
         # 设置为动态大小，根据分配的高度调整
         with card_layout.canvas.before:
             Color(1, 1, 1, 1)
             self.card_bg = RoundedRectangle(pos=card_layout.pos, size=card_layout.size,
-                                            radius=[15])
+                                            radius=[20])  # 增加圆角半径
             card_layout.bind(pos=self._update_card_bg, size=self._update_card_bg)
 
         # 标题
-        header = Label(text="[b]记账输入[/b]", markup=True, size_hint_y=None, height=50,
+        header = Label(text="[b]记账输入[/b]", markup=True, size_hint_y=None, height=70,  # 增加标题高度
                        color=PRIMARY_COLOR, font_size=TITLE_FONT_SIZE, font_name=DEFAULT_FONT)
         card_layout.add_widget(header)
 
         # 输入网格 - 使用3行布局以获得更好的对称性
-        input_grid = GridLayout(cols=2, spacing=10, padding=[0, 10, 0, 0])
+        input_grid = GridLayout(cols=2, spacing=15, padding=[0, 15, 0, 0])  # 增加间距
 
         # 1.1 时间（自动显示）
         input_grid.add_widget(
             Label(text="时间：", font_size=LABEL_FONT_SIZE, halign="right", color=TEXT_COLOR, size_hint_y=None,
-                  height=50))
+                  height=70))  # 增加高度
         self.time_label = Label(text=datetime.now().strftime("%Y-%m-%d %H:%M"),
-                                font_size=CONTENT_FONT_SIZE, color=PRIMARY_COLOR, size_hint_y=None, height=50)
+                                font_size=CONTENT_FONT_SIZE, color=PRIMARY_COLOR, size_hint_y=None, height=70)
         input_grid.add_widget(self.time_label)
 
         # 1.2 支出分类（下拉选择，修复中文显示）
         input_grid.add_widget(
             Label(text="分类：", font_size=LABEL_FONT_SIZE, halign="right", color=TEXT_COLOR, size_hint_y=None,
-                  height=50))
+                  height=70))
         self.category_spinner = Spinner(
             text=EXPENSE_CATEGORIES[0],
             values=EXPENSE_CATEGORIES,
             font_size=CONTENT_FONT_SIZE,
             size_hint_x=1,
             size_hint_y=None,
-            height=50,
+            height=70,  # 增加高度
             # 强制指定字体渲染中文
             font_name=DEFAULT_FONT
         )
@@ -467,13 +529,13 @@ class InputPage(BoxLayout):
         # 1.3 具体备注（可空，支持中文输入）- 移除错误的input_encoding参数
         input_grid.add_widget(
             Label(text="备注：", font_size=LABEL_FONT_SIZE, halign="right", color=TEXT_COLOR, size_hint_y=None,
-                  height=50))
+                  height=70))
         self.remark_input = TextInput(
             hint_text="例如：麦当劳/地铁3号线",
             font_size=CONTENT_FONT_SIZE,
             size_hint_x=1,
             size_hint_y=None,
-            height=50,
+            height=70,  # 增加高度
             multiline=False,  # 单行输入
             background_color=(0.98, 0.98, 0.98, 1),  # 浅灰色背景
             foreground_color=TEXT_COLOR,
@@ -484,14 +546,14 @@ class InputPage(BoxLayout):
         # 1.4 金额（元）
         input_grid.add_widget(
             Label(text="金额（元）：", font_size=LABEL_FONT_SIZE, halign="right", color=TEXT_COLOR, size_hint_y=None,
-                  height=50))
+                  height=70))
         self.amount_input = TextInput(
             hint_text="请输入数字",
             font_size=CONTENT_FONT_SIZE,
             input_filter="float",
             size_hint_x=1,
             size_hint_y=None,
-            height=50,
+            height=70,  # 增加高度
             background_color=(0.98, 0.98, 0.98, 1),
             foreground_color=TEXT_COLOR,
             font_name=DEFAULT_FONT
@@ -499,14 +561,14 @@ class InputPage(BoxLayout):
         input_grid.add_widget(self.amount_input)
 
         # 1.5 保存按钮
-        input_grid.add_widget(Label(size_hint_y=None, height=50))
+        input_grid.add_widget(Label(size_hint_y=None, height=70))
         save_btn = StyledButton(
             text="保存支出记录",
             font_size=BUTTON_FONT_SIZE,
             background_color=SUCCESS_COLOR,
             size_hint_x=1,
             size_hint_y=None,
-            height=60,  # 增加按钮高度
+            height=80,  # 进一步增加按钮高度
             font_name=DEFAULT_FONT
         )
         save_btn.bind(on_press=self.save_record_handler)
@@ -516,45 +578,79 @@ class InputPage(BoxLayout):
         return card_layout
 
     def create_stats_section(self):
-        stats_layout = GridLayout(cols=4, spacing=10, padding=10)
+        stats_layout = GridLayout(cols=4, spacing=15, padding=15)  # 增加间距和内边距
 
         # 添加圆角背景
         with stats_layout.canvas.before:
             Color(1, 1, 1, 1)
-            self.stats_bg = RoundedRectangle(pos=stats_layout.pos, size=stats_layout.size, radius=[10])
+            self.stats_bg = RoundedRectangle(pos=stats_layout.pos, size=stats_layout.size, radius=[15])
             stats_layout.bind(pos=self._update_stats_bg, size=self._update_stats_bg)
 
         # 统计区域控件
         stats_layout.add_widget(
             Label(text="时间筛选：", font_size=LABEL_FONT_SIZE, halign="center", color=TEXT_COLOR, size_hint_y=None,
-                  height=50))
+                  height=70))  # 增加高度
         self.filter_spinner = Spinner(
             text=TIME_FILTER_TYPES[0],
             values=TIME_FILTER_TYPES,
             font_size=CONTENT_FONT_SIZE,
             size_hint_x=1,
             size_hint_y=None,
-            height=50,
+            height=70,  # 增加高度
             font_name=DEFAULT_FONT
         )
         # 添加筛选类型变化事件监听
         self.filter_spinner.bind(text=self.on_filter_type_change)
         stats_layout.add_widget(self.filter_spinner)
 
-        # 创建日期输入框容器
-        self.date_input_container = BoxLayout(orientation='horizontal', size_hint_y=None, height=50)
+        # 创建日期输入框容器 - 使用水平布局放置年月日输入框
+        self.date_input_container = BoxLayout(orientation='horizontal', size_hint_y=None, height=70)  # 增加高度
 
-        self.filter_input = TextInput(
-            hint_text="例：2024-12-01",
+        # 年输入框
+        self.year_input = TextInput(
+            hint_text="年",
             font_size=CONTENT_FONT_SIZE,
             size_hint_x=1,
             size_hint_y=None,
-            height=50,
+            height=70,  # 增加高度
             background_color=(0.98, 0.98, 0.98, 1),
             foreground_color=TEXT_COLOR,
-            font_name=DEFAULT_FONT
+            font_name=DEFAULT_FONT,
+            input_filter='int'  # 只允许输入整数
         )
-        self.date_input_container.add_widget(self.filter_input)
+
+        # 月输入框
+        self.month_input = TextInput(
+            hint_text="月",
+            font_size=CONTENT_FONT_SIZE,
+            size_hint_x=1,
+            size_hint_y=None,
+            height=70,  # 增加高度
+            background_color=(0.98, 0.98, 0.98, 1),
+            foreground_color=TEXT_COLOR,
+            font_name=DEFAULT_FONT,
+            input_filter='int'  # 只允许输入整数
+        )
+
+        # 日输入框
+        self.day_input = TextInput(
+            hint_text="日",
+            font_size=CONTENT_FONT_SIZE,
+            size_hint_x=1,
+            size_hint_y=None,
+            height=70,  # 增加高度
+            background_color=(0.98, 0.98, 0.98, 1),
+            foreground_color=TEXT_COLOR,
+            font_name=DEFAULT_FONT,
+            input_filter='int'  # 只允许输入整数
+        )
+
+        # 初始状态下不添加输入框，只有在选择"自定义日期"时才添加
+        self.date_input_container.add_widget(self.year_input)
+        self.date_input_container.add_widget(self.month_input)
+        self.date_input_container.add_widget(self.day_input)
+        self.date_input_container.clear_widgets()  # 初始清空，稍后根据选择决定是否添加
+
         stats_layout.add_widget(self.date_input_container)
 
         filter_btn = StyledButton(
@@ -563,7 +659,7 @@ class InputPage(BoxLayout):
             background_color=PRIMARY_COLOR,
             size_hint_x=1,
             size_hint_y=None,
-            height=50,
+            height=70,  # 增加高度
             font_name=DEFAULT_FONT
         )
         filter_btn.bind(on_press=self.filter_and_calculate)
@@ -603,9 +699,43 @@ class InputPage(BoxLayout):
 
         # 根据筛选类型获取正确的筛选值
         if filter_type == "自定义日期":
-            filter_value = self.filter_input.text.strip()
-            if not self.validate_date_format(filter_value):
-                self.result_label.text = "错误：日期格式应为 YYYY-MM-DD"
+            year = self.year_input.text.strip()
+            month = self.month_input.text.strip()
+            day = self.day_input.text.strip()
+
+            # 验证输入是否完整且有效
+            if not year or not month or not day:
+                self.result_label.text = "错误：请输入完整的年月日！"
+                self.result_label.color = ERROR_COLOR
+                return
+
+            # 验证年月日的有效性
+            try:
+                # 将月份和日期转换为两位数格式
+                month_int = int(month)
+                day_int = int(day)
+
+                if month_int < 1 or month_int > 12:
+                    self.result_label.text = "错误：月份应在1-12之间！"
+                    self.result_label.color = ERROR_COLOR
+                    return
+
+                if day_int < 1 or day_int > 31:
+                    self.result_label.text = "错误：日期应在1-31之间！"
+                    self.result_label.color = ERROR_COLOR
+                    return
+
+                # 组合日期字符串
+                formatted_date = f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+
+                if not self.validate_date_format(formatted_date):
+                    self.result_label.text = "错误：日期格式无效！"
+                    self.result_label.color = ERROR_COLOR
+                    return
+
+                filter_value = formatted_date
+            except ValueError:
+                self.result_label.text = "错误：年月日必须是数字！"
                 self.result_label.color = ERROR_COLOR
                 return
         # 其他类型无需额外输入值
@@ -623,19 +753,11 @@ class InputPage(BoxLayout):
     def on_filter_type_change(self, spinner, text):
         """处理筛选类型变化"""
         if text == "自定义日期":
-            # 显示日期输入框
+            # 显示年月日输入框
             self.date_input_container.clear_widgets()
-            self.filter_input = TextInput(
-                hint_text="请输入日期(YYYY-MM-DD)",
-                font_size=CONTENT_FONT_SIZE,
-                size_hint_x=1,
-                size_hint_y=None,
-                height=50,
-                background_color=(0.98, 0.98, 0.98, 1),
-                foreground_color=TEXT_COLOR,
-                font_name=DEFAULT_FONT
-            )
-            self.date_input_container.add_widget(self.filter_input)
+            self.date_input_container.add_widget(self.year_input)
+            self.date_input_container.add_widget(self.month_input)
+            self.date_input_container.add_widget(self.day_input)
         else:
             # 对于"今日"、"本月"、"本年"，不需要额外输入
             self.date_input_container.clear_widgets()
@@ -644,7 +766,7 @@ class InputPage(BoxLayout):
                 font_size=CONTENT_FONT_SIZE,
                 size_hint_x=1,
                 size_hint_y=None,
-                height=50,
+                height=70,  # 增加高度
                 color=TEXT_COLOR,
                 halign="left",
                 font_name=DEFAULT_FONT
@@ -992,17 +1114,18 @@ class StatisticsPage(BoxLayout):
             self.control_bg = RoundedRectangle(pos=control_layout.pos, size=control_layout.size, radius=[10])
             control_layout.bind(pos=self._update_control_bg, size=self._update_control_bg)
 
-        # 隐藏时间筛选（因为我们只做月度统计）
+        # 时间筛选
         control_layout.add_widget(Label(text="时间维度：", font_size=LABEL_FONT_SIZE, halign="center", color=TEXT_COLOR))
-        # 使用固定文本标签代替下拉框
-        time_label = Label(
-            text="年度统计",
+        self.time_filter_spinner = Spinner(
+            text="按月统计",
+            values=["按月统计", "按日统计", "按年统计"],
             font_size=CONTENT_FONT_SIZE,
-            color=TEXT_COLOR,
-            halign="center",
+            size_hint_x=1,
+            size_hint_y=None,
+            height=50,
             font_name=DEFAULT_FONT
         )
-        control_layout.add_widget(time_label)
+        control_layout.add_widget(self.time_filter_spinner)
 
         # 分类筛选
         control_layout.add_widget(Label(text="分类筛选：", font_size=LABEL_FONT_SIZE, halign="center", color=TEXT_COLOR))
@@ -1037,10 +1160,18 @@ class StatisticsPage(BoxLayout):
 
     def show_statistics(self, instance=None):
         """显示统计数据"""
+        time_filter = self.time_filter_spinner.text
         category_filter = self.category_filter_spinner.text
 
-        # 获取月度统计数据
-        monthly_data = get_monthly_statistics(self.current_records, category_filter)
+        # 根据时间筛选类型获取统计数据
+        if time_filter == "按月统计":
+            monthly_data = get_monthly_statistics(self.current_records, category_filter)
+        elif time_filter == "按日统计":
+            monthly_data = get_daily_statistics(self.current_records, category_filter)
+        elif time_filter == "按年统计":
+            monthly_data = get_yearly_statistics(self.current_records, category_filter)
+        else:
+            monthly_data = []
 
         # 清除旧的图表
         self.chart_container.clear_widgets()
@@ -1049,20 +1180,6 @@ class StatisticsPage(BoxLayout):
         if monthly_data:
             chart_widget = BarChartWidget(data=monthly_data)
             self.chart_container.add_widget(chart_widget)
-
-            # 添加统计摘要
-            total_amount = sum([item[1] for item in monthly_data])
-            current_year = datetime.now().year
-            summary_label = Label(
-                text=f"统计摘要：{current_year}年总支出{total_amount:.2f}元",
-                font_size=SMALL_CONTENT_FONT_SIZE,
-                color=PRIMARY_COLOR,
-                size_hint_y=None,
-                height=40,
-                halign="center",
-                font_name=DEFAULT_FONT
-            )
-            self.chart_container.add_widget(summary_label)
         else:
             # 显示无数据提示
             no_data_label = Label(
@@ -1087,21 +1204,6 @@ class StatisticsPage(BoxLayout):
 # 主应用类
 class AdvancedAccountBookApp(App):
     def build(self):
-        # 根据屏幕密度调整字体大小
-        screen_width = Window.width
-        screen_height = Window.height
-
-        # 如果屏幕较小，则增大字体比例
-        if screen_width < 400 or screen_height < 700:
-            # 增大字体倍数
-            global TITLE_FONT_SIZE, HEADER_FONT_SIZE, LABEL_FONT_SIZE, BUTTON_FONT_SIZE, CONTENT_FONT_SIZE, SMALL_CONTENT_FONT_SIZE
-            TITLE_FONT_SIZE = int(TITLE_FONT_SIZE * 1.2)
-            HEADER_FONT_SIZE = int(HEADER_FONT_SIZE * 1.2)
-            LABEL_FONT_SIZE = int(LABEL_FONT_SIZE * 1.1)
-            BUTTON_FONT_SIZE = int(BUTTON_FONT_SIZE * 1.1)
-            CONTENT_FONT_SIZE = int(CONTENT_FONT_SIZE * 1.1)
-            SMALL_CONTENT_FONT_SIZE = int(SMALL_CONTENT_FONT_SIZE * 1.1)
-
         self.title = "高级记账本"
 
         # 主布局
