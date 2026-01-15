@@ -1768,25 +1768,37 @@ class ImagePage(BoxLayout):
         """检查并请求存储权限"""
         if 'android' in sys.modules:
             from android.permissions import request_permissions, Permission, check_permission
-
-            permissions = [
-                Permission.READ_EXTERNAL_STORAGE,
-                Permission.WRITE_EXTERNAL_STORAGE
-            ]
-
+            
+            # Android 13+ 新权限模型
+            if hasattr(Permission, 'READ_MEDIA_IMAGES'):
+                # Android 13+ 使用新权限
+                permissions = [
+                    Permission.READ_MEDIA_IMAGES,  # 读取图片
+                    Permission.READ_MEDIA_VIDEO,   # 读取视频
+                    Permission.WRITE_EXTERNAL_STORAGE  # 写入权限
+                ]
+                permission_names = ['READ_MEDIA_IMAGES', 'READ_MEDIA_VIDEO', 'WRITE_EXTERNAL_STORAGE']
+            else:
+                # Android 12及以下使用传统权限
+                permissions = [
+                    Permission.READ_EXTERNAL_STORAGE,
+                    Permission.WRITE_EXTERNAL_STORAGE
+                ]
+                permission_names = ['READ_EXTERNAL_STORAGE', 'WRITE_EXTERNAL_STORAGE']
+            
             # 检查权限状态
             status_text = "权限状态:\n"
-            for perm in permissions:
-                perm_name = str(perm).split('.')[-1]
+            for i, perm in enumerate(permissions):
+                perm_name = permission_names[i]
                 is_granted = check_permission(perm)
                 status_text += f"{perm_name}: {'已授权' if is_granted else '未授权'}\n"
-
+            
             # 如果有权限未授权，请求权限
             missing_permissions = []
             for perm in permissions:
                 if not check_permission(perm):
                     missing_permissions.append(perm)
-
+            
             if missing_permissions:
                 status_text += "\n正在请求缺失权限..."
                 request_permissions(missing_permissions)
@@ -1807,39 +1819,43 @@ class ImagePage(BoxLayout):
                 from android.storage import primary_external_storage_path
                 import os
 
-                # 检查并请求存储权限 - 简化权限请求逻辑
+                # 检查并请求存储权限 - 支持Android 13+新权限模型
                 def check_and_request_permissions():
-                    # 首先检查基础权限
-                    basic_permissions = [
-                        Permission.READ_EXTERNAL_STORAGE,
-                        Permission.WRITE_EXTERNAL_STORAGE
-                    ]
-
-                    # 检查基础权限状态
+                    # 根据Android版本选择合适的权限
+                    if hasattr(Permission, 'READ_MEDIA_IMAGES'):
+                        # Android 13+ 新权限模型
+                        permissions = [
+                            Permission.READ_MEDIA_IMAGES,  # 读取图片
+                            Permission.READ_MEDIA_VIDEO,   # 读取视频
+                            Permission.WRITE_EXTERNAL_STORAGE  # 写入权限
+                        ]
+                    else:
+                        # Android 12及以下使用传统权限
+                        permissions = [
+                            Permission.READ_EXTERNAL_STORAGE,
+                            Permission.WRITE_EXTERNAL_STORAGE
+                        ]
+                    
+                    # 检查权限状态
                     missing_permissions = []
-                    for perm in basic_permissions:
+                    for perm in permissions:
                         if not check_permission(perm):
                             missing_permissions.append(perm)
 
-                    # 如果基础权限缺失，请求它们
+                    # 如果权限缺失，请求它们
                     if missing_permissions:
                         print(f"正在请求权限: {missing_permissions}")
                         request_permissions(missing_permissions)
                         # 注意：request_permissions 是异步的，这里只是发起请求
-
-                        # 基础权限已具备，检查 Android 11+ 的特殊权限
-                    if hasattr(Permission, 'MANAGE_EXTERNAL_STORAGE'):
-                        # 对于 Android 11+，MANAGE_EXTERNAL_STORAGE 权限需要特殊处理
-                        if not check_permission(Permission.MANAGE_EXTERNAL_STORAGE):
-                            print("MANAGE_EXTERNAL_STORAGE 权限缺失，引导用户手动设置")
-                            # 对于 MANAGE_EXTERNAL_STORAGE，通常需要用户手动在设置中开启
-                            # 这里我们继续使用基础权限尝试访问
-                            pass  # 继续执行，不阻塞流程
-
+                        return False
+                    
                     return True
 
                 # 尝试请求权限
-                check_and_request_permissions()
+                if not check_and_request_permissions():
+                    print("权限请求中，请稍后再试")
+                    self.preview_label.text = "权限请求中，请稍后重试（如果长时间无响应，请手动授予存储权限）"
+                    return
 
                 # 使用Android专用的存储路径
                 try:
@@ -1847,7 +1863,7 @@ class ImagePage(BoxLayout):
                 except:
                     # 如果无法获取专用路径，使用公共路径
                     storage_path = '/storage/emulated/0'
-
+                
                 # 尝试多个可能的图片路径
                 possible_paths = [
                     os.path.join(storage_path, 'Pictures'),
