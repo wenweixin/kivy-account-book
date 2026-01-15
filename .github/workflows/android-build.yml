@@ -169,9 +169,8 @@ jobs:
           # 添加Android 13兼容性的Android manifest选项
           echo "android.manifest_permissions = ['WRITE_EXTERNAL_STORAGE', 'READ_EXTERNAL_STORAGE', 'MANAGE_EXTERNAL_STORAGE', 'READ_MEDIA_IMAGES', 'READ_MEDIA_VIDEO']" >> buildozer.spec
           
-          # 添加兼容性配置
-          echo "android.add_metadata = 'android.max_aspect=2.1'" >> buildozer.spec
-          echo "android.add_metadata = 'android.allow_multiple_resumed_activities=true'" >> buildozer.spec
+          # 添加兼容性配置 - 修复重复选项问题，使用单个配置
+          echo "android.add_metadata = android.max_aspect=2.1" >> buildozer.spec
           
           # 内存优化
           echo "p4a.local_recipes = ./" >> buildozer.spec
