@@ -118,7 +118,7 @@ jobs:
           
           chmod -R 777 /home/runner/.buildozer
 
-      - name: 配置Buildozer.spec（针对Android 11+存储权限）
+      - name: 配置Buildozer.spec（针对Android 13存储权限）
         run: |
           buildozer init
           
@@ -143,8 +143,8 @@ jobs:
           sed -i 's|android.api = 27|android.api = 21|' buildozer.spec
           sed -i 's|android.ndk_api = 21|android.ndk_api = 21|' buildozer.spec
           sed -i 's|android.arch = arm64-v8a|android.arch = armeabi-v7a|' buildozer.spec
-          # 针对Android 11+的权限配置
-          sed -i 's|# android.permissions = |android.permissions = WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE,MANAGE_EXTERNAL_STORAGE|' buildozer.spec
+          # 针对Android 13的权限配置 - 包含新权限模型
+          sed -i 's|# android.permissions = |android.permissions = WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE,MANAGE_EXTERNAL_STORAGE,READ_MEDIA_IMAGES,READ_MEDIA_VIDEO|' buildozer.spec
           sed -i 's|android.logcat = false|android.logcat = true|' buildozer.spec
           sed -i 's|# android.sdk_path = |android.sdk_path = /home/runner/.buildozer/android/platform/android-sdk|' buildozer.spec
           
@@ -162,12 +162,16 @@ jobs:
           echo "android.add_assets = " >> buildozer.spec
           echo "kivy.build_options = disable_gstplayer" >> buildozer.spec
           
-          # Android 11+ 特殊配置
-          echo "android.add_compile_options = --compile-options '-DANDROID_API=21'" >> buildozer.spec
+          # Android 13+ 特殊配置
+          echo "android.add_compile_options = --compile-options '-DANDROID_API=33'" >> buildozer.spec
           echo "android.add_gradle_repositories = https://maven.google.com" >> buildozer.spec
           
-          # 添加额外的Android manifest选项
-          echo "android.manifest_permissions = ['WRITE_EXTERNAL_STORAGE', 'READ_EXTERNAL_STORAGE', 'MANAGE_EXTERNAL_STORAGE']" >> buildozer.spec
+          # 添加Android 13兼容性的Android manifest选项
+          echo "android.manifest_permissions = ['WRITE_EXTERNAL_STORAGE', 'READ_EXTERNAL_STORAGE', 'MANAGE_EXTERNAL_STORAGE', 'READ_MEDIA_IMAGES', 'READ_MEDIA_VIDEO']" >> buildozer.spec
+          
+          # 添加兼容性配置
+          echo "android.add_metadata = 'android.max_aspect=2.1'" >> buildozer.spec
+          echo "android.add_metadata = 'android.allow_multiple_resumed_activities=true'" >> buildozer.spec
           
           # 内存优化
           echo "p4a.local_recipes = ./" >> buildozer.spec
