@@ -1611,8 +1611,8 @@ class PieChartWidget(FloatLayout):
 
         # 绘制图例 - 放在扇形图下方
         legend_start_y = center_y - radius - 60  # 在扇形图下方
-        legend_height = 20  # 每行图例的高度
-        legend_padding = 10  # 图例之间的间距
+        legend_height = 40  # 每行图例的高度
+        legend_padding = 20  # 图例之间的间距
 
         # 为每个图例项创建单独的一行
         for i, item in enumerate(self.data):
@@ -1640,7 +1640,7 @@ class PieChartWidget(FloatLayout):
             legend_text = f"{item['category']}: {item['amount']:.2f}元({item['percentage']:.1f}%)"
             legend_label = Label(
                 text=legend_text,
-                font_size=SMALL_CONTENT_FONT_SIZE - 8,
+                font_size=SMALL_CONTENT_FONT_SIZE,
                 color=TEXT_COLOR,
                 halign="left",  # 设置为左对齐
                 valign="middle",  # 垂直居中
@@ -1650,7 +1650,7 @@ class PieChartWidget(FloatLayout):
                 height=legend_height
             )
             # 文字位置设置在颜色块的右侧，留出间距
-            legend_label.x = legend_x + color_block_size + 50  # 颜色块右边加上一点间距
+            legend_label.x = legend_x + color_block_size + 60  # 颜色块右边加上一点间距
             legend_label.y = legend_y  # 与图例项位置对齐，内部垂直居中
             self.add_widget(legend_label)
 
@@ -1688,7 +1688,7 @@ class ImagePage(BoxLayout):
         # 功能按钮区域
         button_layout = self.create_button_section()
         button_layout.size_hint_y = None
-        button_layout.height = 200
+        button_layout.height = 250  # 增加高度以容纳新增按钮
         self.add_widget(button_layout)
 
         # 预览区域
@@ -1710,6 +1710,18 @@ class ImagePage(BoxLayout):
         )
         restore_btn.bind(on_press=self.restore_original_background)
         button_layout.add_widget(restore_btn)
+
+        # 权限检查按钮
+        permission_btn = StyledButton(
+            text="检查存储权限",
+            font_size=BUTTON_FONT_SIZE,
+            background_color=WARNING_COLOR,
+            size_hint_y=None,
+            height=70,
+            font_name=DEFAULT_FONT
+        )
+        permission_btn.bind(on_press=self.check_permissions)
+        button_layout.add_widget(permission_btn)
 
         # 选择新背景按钮
         select_btn = StyledButton(
@@ -1752,7 +1764,39 @@ class ImagePage(BoxLayout):
             print(f"恢复背景失败: {e}")
             self.preview_label.text = f"恢复失败: {e}"
 
-    # 在 ImagePage 类中修改 select_new_background 方法
+    def check_permissions(self, instance):
+        """检查并请求存储权限"""
+        if 'android' in sys.modules:
+            from android.permissions import request_permissions, Permission, check_permission
+
+            permissions = [
+                Permission.READ_EXTERNAL_STORAGE,
+                Permission.WRITE_EXTERNAL_STORAGE
+            ]
+
+            # 检查权限状态
+            status_text = "权限状态:\n"
+            for perm in permissions:
+                perm_name = str(perm).split('.')[-1]
+                is_granted = check_permission(perm)
+                status_text += f"{perm_name}: {'已授权' if is_granted else '未授权'}\n"
+
+            # 如果有权限未授权，请求权限
+            missing_permissions = []
+            for perm in permissions:
+                if not check_permission(perm):
+                    missing_permissions.append(perm)
+
+            if missing_permissions:
+                status_text += "\n正在请求缺失权限..."
+                request_permissions(missing_permissions)
+                self.preview_label.text = status_text + "\n\n请在弹出的权限请求对话框中允许权限\n\n如果弹窗没有出现，请前往应用设置中手动授权存储权限"
+            else:
+                status_text += "\n所有必要权限均已授权"
+                self.preview_label.text = status_text
+        else:
+            self.preview_label.text = "非Android环境，无需权限检查"
+
     def select_new_background(self, instance):
         """选择新背景图片"""
         try:
@@ -1763,41 +1807,47 @@ class ImagePage(BoxLayout):
                 from android.storage import primary_external_storage_path
                 import os
 
-                # 检查并请求存储权限
+                # 检查并请求存储权限 - 简化权限请求逻辑
                 def check_and_request_permissions():
-                    # 对于Android 11+，需要MANAGE_EXTERNAL_STORAGE权限才能访问所有图片
-                    if hasattr(Permission, 'MANAGE_EXTERNAL_STORAGE'):
-                        permissions = [
-                            Permission.READ_EXTERNAL_STORAGE,
-                            Permission.WRITE_EXTERNAL_STORAGE,
-                            Permission.MANAGE_EXTERNAL_STORAGE
-                        ]
-                    else:
-                        permissions = [
-                            Permission.READ_EXTERNAL_STORAGE,
-                            Permission.WRITE_EXTERNAL_STORAGE
-                        ]
+                    # 首先检查基础权限
+                    basic_permissions = [
+                        Permission.READ_EXTERNAL_STORAGE,
+                        Permission.WRITE_EXTERNAL_STORAGE
+                    ]
 
-                    # 检查权限状态
+                    # 检查基础权限状态
                     missing_permissions = []
-                    for perm in permissions:
+                    for perm in basic_permissions:
                         if not check_permission(perm):
                             missing_permissions.append(perm)
 
+                    # 如果基础权限缺失，请求它们
                     if missing_permissions:
                         print(f"正在请求权限: {missing_permissions}")
                         request_permissions(missing_permissions)
-                        return False
+                        # 注意：request_permissions 是异步的，这里只是发起请求
+
+                        # 基础权限已具备，检查 Android 11+ 的特殊权限
+                    if hasattr(Permission, 'MANAGE_EXTERNAL_STORAGE'):
+                        # 对于 Android 11+，MANAGE_EXTERNAL_STORAGE 权限需要特殊处理
+                        if not check_permission(Permission.MANAGE_EXTERNAL_STORAGE):
+                            print("MANAGE_EXTERNAL_STORAGE 权限缺失，引导用户手动设置")
+                            # 对于 MANAGE_EXTERNAL_STORAGE，通常需要用户手动在设置中开启
+                            # 这里我们继续使用基础权限尝试访问
+                            pass  # 继续执行，不阻塞流程
+
                     return True
 
                 # 尝试请求权限
-                if not check_and_request_permissions():
-                    print("权限请求中，请稍后再试")
-                    self.preview_label.text = "正在请求权限，请稍后重试"
-                    return
+                check_and_request_permissions()
 
                 # 使用Android专用的存储路径
-                storage_path = primary_external_storage_path()
+                try:
+                    storage_path = primary_external_storage_path()
+                except:
+                    # 如果无法获取专用路径，使用公共路径
+                    storage_path = '/storage/emulated/0'
+
                 # 尝试多个可能的图片路径
                 possible_paths = [
                     os.path.join(storage_path, 'Pictures'),
@@ -1823,6 +1873,7 @@ class ImagePage(BoxLayout):
                 )
             else:
                 # PC环境使用当前目录
+                import os  # 确保PC环境下也导入os
                 filechooser = FileChooserIconView(
                     filters=['*.png', '*.jpg', '*.jpeg', '*.gif', '*.bmp'],
                     path='./',
@@ -1840,11 +1891,13 @@ class ImagePage(BoxLayout):
             # 创建弹窗
             popup = Popup(title='选择背景图片', content=layout, size_hint=(0.9, 0.9))
 
+            # 修改这里的 load_image 函数，显式传入 os 模块
             def load_image(instance):
                 if filechooser.selection:
                     image_path = filechooser.selection[0]
 
                     # 验证文件是否存在且为图片格式
+                    import os  # 在函数内部显式导入，确保可访问
                     if os.path.isfile(image_path):
                         try:
                             # 设置背景图片
@@ -1868,6 +1921,7 @@ class ImagePage(BoxLayout):
 
         except ImportError as e:
             # 如果Android模块不可用，显示错误信息
+            import os  # 确保在异常处理中也能访问os
             error_msg = f"无法访问文件选择器: {str(e)}"
             print(error_msg)
             self.preview_label.text = error_msg
@@ -1880,6 +1934,7 @@ class ImagePage(BoxLayout):
             )
             error_popup.open()
         except Exception as e:
+            import os  # 确保在异常处理中也能访问os
             error_msg = f"选择背景图片失败: {str(e)}"
             print(error_msg)
             self.preview_label.text = error_msg
