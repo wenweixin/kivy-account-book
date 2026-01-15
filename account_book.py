@@ -494,7 +494,7 @@ class InputPage(BoxLayout):
 
         # 标题
         header = Label(text="[b]记账输入[/b]", markup=True, size_hint_y=None, height=70,  # 增加标题高度
-                       color= TEXT_COLOR, font_size=TITLE_FONT_SIZE, font_name=DEFAULT_FONT)
+                       color=TEXT_COLOR, font_size=TITLE_FONT_SIZE, font_name=DEFAULT_FONT)
         card_layout.add_widget(header)
 
         # 输入网格 - 使用3行布局以获得更好的对称性
@@ -910,10 +910,14 @@ class SearchPage(BoxLayout):
             return
 
         for i, record in enumerate(reversed(records)):
-            # 创建纯内容的BoxLayout，不添加背景色
-            record_box = BoxLayout(orientation='horizontal', size_hint_y=None, height=60, padding=10)
+            # 创建包含记录信息和（预留）删除按钮的BoxLayout
+            record_box = BoxLayout(orientation='horizontal', size_hint_y=None, height=100, padding=10)
 
-            # 不再绘制背景矩形，保持透明
+            # 记录信息部分 - 限制宽度，防止挤压其他元素
+            record_info = BoxLayout(orientation='vertical',
+                                    size_hint_x=0.7,  # 减小宽度比例，为其他元素预留空间
+                                    size_hint_y=None,
+                                    height=70)
 
             # 移除颜色标签，使用黑色文字
             record_text = (
@@ -930,10 +934,15 @@ class SearchPage(BoxLayout):
                 markup=True,
                 halign='left',
                 valign='middle',
-                text_size=(self.width * 0.9, None),
+                text_size=(record_info.width, None),  # 设置text_size以适应容器宽度
                 font_name=DEFAULT_FONT
             )
-            record_box.add_widget(record_label)
+            # 绑定宽度更新，确保文本能够正确换行
+            record_label.bind(width=lambda instance, width: setattr(instance, 'text_size', (width, None)))
+
+            record_info.add_widget(record_label)
+            record_box.add_widget(record_info)
+
             self.search_record_layout.add_widget(record_box)
 
     def _update_rect(self, instance, value):
@@ -1541,7 +1550,7 @@ class PieChartWidget(FloatLayout):
             (0.6, 0.3, 0.9, 1)  # 紫色
         ]
 
-        # 绘制扇形
+        # 绘制扇形和标签
         start_angle = 0  # 从0度开始
         for i, item in enumerate(self.data):
             if item["angle"] <= 0:
@@ -1571,39 +1580,52 @@ class PieChartWidget(FloatLayout):
                         points=[center_x, center_y, start_x, start_y, end_x, end_y]
                     )
 
+            # 计算标签位置 - 在扇形中心位置显示类别名称
+            mid_angle = start_angle + item["angle"] / 2  # 扇形的中间角度
+            # 将标签稍微往扇形外侧放置，以便更清晰可见
+            label_distance = radius * 0.6  # 调整标签距离中心的距离
+            label_x = center_x + label_distance * math.cos(math.radians(mid_angle))
+            label_y = center_y + label_distance * math.sin(math.radians(mid_angle))
+
+            # 创建标签显示分类名称
+            label = Label(
+                text=item['category'],
+                font_size=SMALL_CONTENT_FONT_SIZE - 10,  # 稍微小一点的字体
+                color=(1, 1, 1, 1),
+                # 根据背景色调整文字颜色，红色背景用黑色文字
+                halign="center",
+                valign="middle",
+                font_name=DEFAULT_FONT,
+                size_hint=(None, None),
+                width=100,
+                height=30
+            )
+
+            # 设置标签位置
+            label.center_x = label_x
+            label.center_y = label_y
+
+            self.add_widget(label)
+
             start_angle += item["angle"]
 
-        # 在 PieChartWidget 类的 draw_chart 方法中，替换图例绘制部分
         # 绘制图例 - 放在扇形图下方
-        legend_start_y = center_y - radius - 30  # 在扇形图下方
-        legend_height = 40  # 每行图例的高度
+        legend_start_y = center_y - radius - 60  # 在扇形图下方
+        legend_height = 20  # 每行图例的高度
         legend_padding = 10  # 图例之间的间距
 
-        # 计算每行能容纳多少个图例项
-        item_width = 200  # 每个图例项的大致宽度
-        items_per_row = max(1, int(self.width / item_width))  # 每行显示的项目数
-
-        # 计算所需的行数
-        rows_needed = (len(self.data) + items_per_row - 1) // items_per_row
-
-        # 逐行绘制图例
+        # 为每个图例项创建单独的一行
         for i, item in enumerate(self.data):
             # 不再需要检查amount > 0，因为数据已经被过滤
             color_idx = i % len(colors)
 
-            # 计算当前项目所在行和列
-            row = i // items_per_row
-            col = i % items_per_row
+            # 计算图例项的位置 - 每行单独排列
+            # 从上到下排列多个图例
+            legend_y = legend_start_y - i * legend_height - i * legend_padding
 
-            # 计算当前行的起始x位置，实现居中对齐
-            items_in_current_row = min(items_per_row, len(self.data) - row * items_per_row)
-            total_width_of_items = items_in_current_row * item_width
-            start_x = self.x + (self.width - total_width_of_items) / 2  # 居中对齐
-
-            # 计算图例项的位置
-            legend_x = start_x + col * item_width  # 从居中位置开始，按列分布
-            # 从上到下排列多行图例
-            legend_y = legend_start_y - row * legend_height
+            # 图例项居中显示在可用宽度内
+            item_width = 300  # 每个图例项的宽度
+            legend_x = self.center_x - item_width / 2  # 居中对齐
 
             # 绘制颜色块 - 与文字垂直居中对齐
             color_block_size = 15
@@ -1614,8 +1636,8 @@ class PieChartWidget(FloatLayout):
                 Color(*colors[color_idx])
                 Rectangle(pos=(legend_x, color_block_y), size=(color_block_size, color_block_size))
 
-            # 绘制说明文字 - 设置为左对齐，垂直居中对齐
-            legend_text = f"{item['category']}: {item['percentage']:.1f}%"
+            # 绘制说明文字 - 包含分类名称、百分比和金额，设置为左对齐，垂直居中对齐
+            legend_text = f"{item['category']}: {item['amount']:.2f}元({item['percentage']:.1f}%)"
             legend_label = Label(
                 text=legend_text,
                 font_size=SMALL_CONTENT_FONT_SIZE - 8,
@@ -1627,38 +1649,10 @@ class PieChartWidget(FloatLayout):
                 width=item_width - 20,  # 固定宽度
                 height=legend_height
             )
-            legend_label.x = legend_x + color_block_size + 5  # 颜色块右边加上一点间距
+            # 文字位置设置在颜色块的右侧，留出间距
+            legend_label.x = legend_x + color_block_size + 50  # 颜色块右边加上一点间距
             legend_label.y = legend_y  # 与图例项位置对齐，内部垂直居中
             self.add_widget(legend_label)
-
-        # 添加标题
-        if self.filter_type == "本月":
-            period_text = f"本月总支出: {self.total_amount:.2f}元"
-        elif self.filter_type == "本年":
-            period_text = f"本年总支出: {self.total_amount:.2f}元"
-        elif self.filter_type == "自定义月份":
-            year = self.parent.year_input.text if hasattr(self.parent, 'year_input') else ""
-            month = self.parent.month_input.text if hasattr(self.parent, 'month_input') else ""
-            period_text = f"{year}年{month}月总支出: {self.total_amount:.2f}元"
-        elif self.filter_type == "自定义年份":
-            year = self.parent.year_input.text if hasattr(self.parent, 'year_input') else ""
-            period_text = f"{year}年总支出: {self.total_amount:.2f}元"
-        else:
-            period_text = f"总支出: {self.total_amount:.2f}元"
-
-        title_label = Label(
-            text=period_text,
-            font_size=HEADER_FONT_SIZE,
-            color=PRIMARY_COLOR,
-            halign="center",
-            font_name=DEFAULT_FONT,
-            size_hint=(None, None),
-            width=400,
-            height=40
-        )
-        title_label.center_x = self.center_x
-        title_label.y = self.top - 60
-        self.add_widget(title_label)
 
 
 # 第六页：图片背景管理页面
@@ -1684,7 +1678,7 @@ class ImagePage(BoxLayout):
         title_label = Label(
             text="背景管理",
             font_size=TITLE_FONT_SIZE,
-            color=TEXT_COLOR ,
+            color=TEXT_COLOR,
             bold=True,
             font_name=DEFAULT_FONT
         )
@@ -1765,22 +1759,61 @@ class ImagePage(BoxLayout):
             # 检查是否在Android环境下
             if 'android' in sys.modules:
                 # 导入Android相关模块
-                from android.permissions import request_permissions, Permission
+                from android.permissions import request_permissions, Permission, check_permission
                 from android.storage import primary_external_storage_path
+                import os
 
-                # 请求存储权限
-                request_permissions([
-                    Permission.READ_EXTERNAL_STORAGE,
-                    Permission.WRITE_EXTERNAL_STORAGE
-                ])
+                # 检查并请求存储权限
+                def check_and_request_permissions():
+                    # 对于Android 11+，需要MANAGE_EXTERNAL_STORAGE权限才能访问所有图片
+                    if hasattr(Permission, 'MANAGE_EXTERNAL_STORAGE'):
+                        permissions = [
+                            Permission.READ_EXTERNAL_STORAGE,
+                            Permission.WRITE_EXTERNAL_STORAGE,
+                            Permission.MANAGE_EXTERNAL_STORAGE
+                        ]
+                    else:
+                        permissions = [
+                            Permission.READ_EXTERNAL_STORAGE,
+                            Permission.WRITE_EXTERNAL_STORAGE
+                        ]
+
+                    # 检查权限状态
+                    missing_permissions = []
+                    for perm in permissions:
+                        if not check_permission(perm):
+                            missing_permissions.append(perm)
+
+                    if missing_permissions:
+                        print(f"正在请求权限: {missing_permissions}")
+                        request_permissions(missing_permissions)
+                        return False
+                    return True
+
+                # 尝试请求权限
+                if not check_and_request_permissions():
+                    print("权限请求中，请稍后再试")
+                    self.preview_label.text = "正在请求权限，请稍后重试"
+                    return
 
                 # 使用Android专用的存储路径
                 storage_path = primary_external_storage_path()
-                pictures_path = os.path.join(storage_path, 'Pictures')
+                # 尝试多个可能的图片路径
+                possible_paths = [
+                    os.path.join(storage_path, 'Pictures'),
+                    os.path.join(storage_path, 'DCIM'),
+                    os.path.join(storage_path, 'Download'),
+                    storage_path
+                ]
 
-                # 如果Pictures文件夹不存在，则使用根存储路径
-                if not os.path.exists(pictures_path):
-                    pictures_path = storage_path
+                pictures_path = None
+                for path in possible_paths:
+                    if os.path.exists(path):
+                        pictures_path = path
+                        break
+
+                if not pictures_path:
+                    pictures_path = storage_path  # 使用根目录作为备选
 
                 # 创建文件选择器，专门过滤图片文件
                 filechooser = FileChooserIconView(
@@ -1984,6 +2017,7 @@ class AdvancedAccountBookApp(App):
                     Color(1, 1, 1, 1)  # 白色背景以显示图片
                     page.rect = Rectangle(size=page.size, pos=page.pos, source=image_path)
                     page.bind(size=page._update_rect, pos=page._update_rect)
+
 
 if __name__ == "__main__":
     # 最终确保编码正确
