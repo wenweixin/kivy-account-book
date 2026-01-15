@@ -34,12 +34,12 @@ TEXT_COLOR = (0, 0, 0, 1)  # 文字色 - 改为黑色
 TAB_BG_COLOR = (0.85, 0.85, 0.85, 1)  # Tab背景色
 
 # 添加字体大小常量（针对移动设备优化）
-TITLE_FONT_SIZE = 36  # 标题字体 - 增加到36
-HEADER_FONT_SIZE = 36  # 表头字体 - 增加到36
-LABEL_FONT_SIZE = 32  # 标签字体 - 增加到32
-BUTTON_FONT_SIZE = 32  # 按钮字体 - 增加到32
-CONTENT_FONT_SIZE = 32  # 内容字体 - 增加到32
-SMALL_CONTENT_FONT_SIZE = 32  # 小内容字体 - 增加到32
+TITLE_FONT_SIZE = 40  # 标题字体 - 增加到36
+HEADER_FONT_SIZE = 40  # 表头字体 - 增加到36
+LABEL_FONT_SIZE = 36  # 标签字体 - 增加到32
+BUTTON_FONT_SIZE = 36  # 按钮字体 - 增加到32
+CONTENT_FONT_SIZE = 36  # 内容字体 - 增加到32
+SMALL_CONTENT_FONT_SIZE = 36  # 小内容字体 - 增加到32
 
 # ======== 核心修复：解决中文乱码 ========
 # 1. 设置Kivy默认编码为UTF-8
@@ -996,6 +996,7 @@ class RecordsPage(BoxLayout):
         self.current_records = load_records()
         self.refresh_records(self.current_records)
 
+    # 在 RecordsPage 类的 refresh_records 方法中，修改记录项的创建部分
     def refresh_records(self, records: List[Dict]):
         """刷新记录展示区域"""
         self.record_layout.clear_widgets()
@@ -1014,10 +1015,13 @@ class RecordsPage(BoxLayout):
 
         for i, record in enumerate(reversed(records)):
             # 创建包含记录信息和删除按钮的BoxLayout
-            record_box = BoxLayout(orientation='horizontal', size_hint_y=None, height=60, padding=10)
+            record_box = BoxLayout(orientation='horizontal', size_hint_y=None, height=100, padding=10)
 
-            # 记录信息部分
-            record_info = BoxLayout(orientation='vertical', size_hint_x=0.8)
+            # 记录信息部分 - 限制宽度，防止挤压删除按钮
+            record_info = BoxLayout(orientation='vertical',
+                                    size_hint_x=0.7,  # 减小宽度比例，为删除按钮预留空间
+                                    size_hint_y=None,
+                                    height=70)
 
             # 移除颜色标签，使用黑色文字
             record_text = (
@@ -1034,19 +1038,23 @@ class RecordsPage(BoxLayout):
                 markup=True,
                 halign='left',
                 valign='middle',
-                text_size=(None, None),
+                text_size=(record_info.width, None),  # 设置text_size以适应容器宽度
                 font_name=DEFAULT_FONT
             )
+            # 绑定宽度更新，确保文本能够正确换行
+            record_label.bind(width=lambda instance, width: setattr(instance, 'text_size', (width, None)))
+
             record_info.add_widget(record_label)
             record_box.add_widget(record_info)
 
-            # 删除按钮部分
+            # 删除按钮部分 - 设置固定宽度，避免被挤压
             delete_btn = StyledButton(
                 text="删除",
                 font_size=BUTTON_FONT_SIZE - 8,
                 background_color=ERROR_COLOR,
-                size_hint_x=0.2,
-                height=50,
+                size_hint_x=None,  # 设置为None，使用固定宽度
+                width=80,  # 设置固定宽度
+                height=70,
                 font_name=DEFAULT_FONT
             )
             # 将记录索引绑定到按钮
@@ -1519,8 +1527,10 @@ class PieChartWidget(FloatLayout):
 
         # 计算中心位置和半径
         center_x = self.center_x
-        center_y = self.center_y + 20  # 向上偏移一点
-        radius = min(self.width, self.height) * 0.35
+        # 为下方图例预留空间，调整扇形图中心位置
+        center_y = self.center_y + 80  # 向上偏移，为图例留出空间
+        # 调整半径，确保扇形图和图例都在可视区域内
+        radius = min(self.width * 0.4, (self.height - 150) * 0.4)
 
         # 颜色列表
         colors = [
@@ -1563,34 +1573,49 @@ class PieChartWidget(FloatLayout):
 
             start_angle += item["angle"]
 
-        # 绘制图例 - 修正位置到右中部，统一间距，文字左对齐，颜色方块与文字垂直居中对齐
-        legend_item_height = 40  # 每个图例项的高度（包括间距）
-        # 计算图例区域的总高度
-        total_legend_height = len(self.data) * legend_item_height
-        # 从扇形图中心位置开始向上偏移一半图例区域高度，使图例居中
-        legend_start_y = center_y + total_legend_height // 2
+        # 在 PieChartWidget 类的 draw_chart 方法中，替换图例绘制部分
+        # 绘制图例 - 放在扇形图下方
+        legend_start_y = center_y - radius - 30  # 在扇形图下方
+        legend_height = 40  # 每行图例的高度
+        legend_padding = 10  # 图例之间的间距
 
-        # 计算图例的起始X坐标（在扇形图的右边）
-        legend_x = center_x + radius + 20  # 扇形图右边加上一定间距
+        # 计算每行能容纳多少个图例项
+        item_width = 200  # 每个图例项的大致宽度
+        items_per_row = max(1, int(self.width / item_width))  # 每行显示的项目数
 
+        # 计算所需的行数
+        rows_needed = (len(self.data) + items_per_row - 1) // items_per_row
+
+        # 逐行绘制图例
         for i, item in enumerate(self.data):
             # 不再需要检查amount > 0，因为数据已经被过滤
             color_idx = i % len(colors)
 
-            # 计算每个图例项的位置，从上到下排列
-            legend_y = legend_start_y - (i + 1) * legend_item_height
+            # 计算当前项目所在行和列
+            row = i // items_per_row
+            col = i % items_per_row
+
+            # 计算当前行的起始x位置，实现居中对齐
+            items_in_current_row = min(items_per_row, len(self.data) - row * items_per_row)
+            total_width_of_items = items_in_current_row * item_width
+            start_x = self.x + (self.width - total_width_of_items) / 2  # 居中对齐
+
+            # 计算图例项的位置
+            legend_x = start_x + col * item_width  # 从居中位置开始，按列分布
+            # 从上到下排列多行图例
+            legend_y = legend_start_y - row * legend_height
 
             # 绘制颜色块 - 与文字垂直居中对齐
-            color_block_size = 20
+            color_block_size = 15
             # 计算颜色块的y坐标，使其与文字垂直居中对齐
-            color_block_y = legend_y + (30 - color_block_size) // 2  # 30是文字高度，20是颜色块高度
+            color_block_y = legend_y + (legend_height - color_block_size) // 2
 
             with self.canvas:
                 Color(*colors[color_idx])
                 Rectangle(pos=(legend_x, color_block_y), size=(color_block_size, color_block_size))
 
             # 绘制说明文字 - 设置为左对齐，垂直居中对齐
-            legend_text = f"{item['category']}: {item['percentage']:.1f}% ({item['amount']:.2f}元)"
+            legend_text = f"{item['category']}: {item['percentage']:.1f}%"
             legend_label = Label(
                 text=legend_text,
                 font_size=SMALL_CONTENT_FONT_SIZE - 8,
@@ -1599,8 +1624,8 @@ class PieChartWidget(FloatLayout):
                 valign="middle",  # 垂直居中
                 font_name=DEFAULT_FONT,
                 size_hint=(None, None),
-                width=300,  # 固定宽度
-                height=30
+                width=item_width - 20,  # 固定宽度
+                height=legend_height
             )
             legend_label.x = legend_x + color_block_size + 5  # 颜色块右边加上一点间距
             legend_label.y = legend_y  # 与图例项位置对齐，内部垂直居中
@@ -1733,39 +1758,98 @@ class ImagePage(BoxLayout):
             print(f"恢复背景失败: {e}")
             self.preview_label.text = f"恢复失败: {e}"
 
+    # 在 ImagePage 类中修改 select_new_background 方法
     def select_new_background(self, instance):
         """选择新背景图片"""
         try:
-            # 使用FileChooser选择图片
-            filechooser = FileChooserIconView(
-                filters=['*.png', '*.jpg', '*.jpeg', '*.gif', '*.bmp'],
-                path='/sdcard/' if 'android' in sys.modules else './'
-            )
+            # 检查是否在Android环境下
+            if 'android' in sys.modules:
+                # 导入Android相关模块
+                from android.permissions import request_permissions, Permission
+                from android.storage import primary_external_storage_path
 
+                # 请求存储权限
+                request_permissions([
+                    Permission.READ_EXTERNAL_STORAGE,
+                    Permission.WRITE_EXTERNAL_STORAGE
+                ])
+
+                # 使用Android专用的存储路径
+                storage_path = primary_external_storage_path()
+                pictures_path = os.path.join(storage_path, 'Pictures')
+
+                # 如果Pictures文件夹不存在，则使用根存储路径
+                if not os.path.exists(pictures_path):
+                    pictures_path = storage_path
+
+                # 创建文件选择器，专门过滤图片文件
+                filechooser = FileChooserIconView(
+                    filters=['*.png', '*.jpg', '*.jpeg', '*.gif', '*.bmp'],
+                    path=pictures_path,
+                    size_hint_y=0.9
+                )
+            else:
+                # PC环境使用当前目录
+                filechooser = FileChooserIconView(
+                    filters=['*.png', '*.jpg', '*.jpeg', '*.gif', '*.bmp'],
+                    path='./',
+                    size_hint_y=0.9
+                )
+
+            # 创建选择按钮
             select_btn = Button(text='选择', size_hint_y=None, height=50)
 
+            # 创建布局
             layout = BoxLayout(orientation='vertical')
             layout.add_widget(filechooser)
             layout.add_widget(select_btn)
 
+            # 创建弹窗
             popup = Popup(title='选择背景图片', content=layout, size_hint=(0.9, 0.9))
 
             def load_image(instance):
                 if filechooser.selection:
                     image_path = filechooser.selection[0]
-                    self.set_background_image(image_path)
-                    self.parent_app.set_page_backgrounds_to_image(image_path)
-                    self.preview_label.text = f"已设置新背景"
-                    popup.dismiss()
+
+                    # 验证文件是否存在且为图片格式
+                    if os.path.isfile(image_path):
+                        try:
+                            # 设置背景图片
+                            self.set_background_image(image_path)
+                            self.parent_app.set_page_backgrounds_to_image(image_path)
+                            self.preview_label.text = f"已设置新背景"
+
+                            # 保存图片路径到配置（可选）
+                            print(f"背景图片已设置: {image_path}")
+
+                            popup.dismiss()
+                        except Exception as e:
+                            self.preview_label.text = f"设置背景失败: {str(e)}"
+                    else:
+                        self.preview_label.text = "选择的不是有效文件"
                 else:
-                    print("未选择文件")
+                    self.preview_label.text = "未选择文件"
 
             select_btn.bind(on_press=load_image)
             popup.open()
 
+        except ImportError as e:
+            # 如果Android模块不可用，显示错误信息
+            error_msg = f"无法访问文件选择器: {str(e)}"
+            print(error_msg)
+            self.preview_label.text = error_msg
+
+            # 提供一个简单的错误提示弹窗
+            error_popup = Popup(
+                title='错误',
+                content=Label(text=error_msg, font_name=DEFAULT_FONT),
+                size_hint=(0.8, 0.4)
+            )
+            error_popup.open()
         except Exception as e:
-            print(f"选择背景图片失败: {e}")
-            self.preview_label.text = f"选择失败: {e}"
+            error_msg = f"选择背景图片失败: {str(e)}"
+            print(error_msg)
+            self.preview_label.text = error_msg
 
     def set_background_color(self, color):
         """设置当前页面背景颜色"""
