@@ -1655,6 +1655,8 @@ class PieChartWidget(FloatLayout):
             self.add_widget(legend_label)
 
 
+# ... (前面的代码保持不变，直到ImagePage类)
+
 # 第六页：图片背景管理页面
 class ImagePage(BoxLayout):
     def __init__(self, parent_app, **kwargs):
@@ -1768,13 +1770,13 @@ class ImagePage(BoxLayout):
         """检查并请求存储权限"""
         if 'android' in sys.modules:
             from android.permissions import request_permissions, Permission, check_permission
-            
-            # Android 13+ 新权限模型
+
+            # 检查是否是Android 13+ (API 33+) - 需要新的媒体权限
             if hasattr(Permission, 'READ_MEDIA_IMAGES'):
-                # Android 13+ 使用新权限
+                # Android 13+ 使用新权限模型
                 permissions = [
                     Permission.READ_MEDIA_IMAGES,  # 读取图片
-                    Permission.READ_MEDIA_VIDEO,   # 读取视频
+                    Permission.READ_MEDIA_VIDEO,  # 读取视频
                     Permission.WRITE_EXTERNAL_STORAGE  # 写入权限
                 ]
                 permission_names = ['READ_MEDIA_IMAGES', 'READ_MEDIA_VIDEO', 'WRITE_EXTERNAL_STORAGE']
@@ -1785,91 +1787,88 @@ class ImagePage(BoxLayout):
                     Permission.WRITE_EXTERNAL_STORAGE
                 ]
                 permission_names = ['READ_EXTERNAL_STORAGE', 'WRITE_EXTERNAL_STORAGE']
-            
+
             # 检查权限状态
             status_text = "权限状态:\n"
+            all_granted = True
+
             for i, perm in enumerate(permissions):
                 perm_name = permission_names[i]
                 is_granted = check_permission(perm)
-                status_text += f"{perm_name}: {'已授权' if is_granted else '未授权'}\n"
-            
-            # 如果有权限未授权，请求权限
-            missing_permissions = []
-            for perm in permissions:
-                if not check_permission(perm):
-                    missing_permissions.append(perm)
-            
-            if missing_permissions:
-                status_text += "\n正在请求缺失权限..."
-                request_permissions(missing_permissions)
-                self.preview_label.text = status_text + "\n\n请在弹出的权限请求对话框中允许权限\n\n如果弹窗没有出现，请前往应用设置中手动授权存储权限"
-            else:
-                status_text += "\n所有必要权限均已授权"
+                status_text += f"{perm_name}: {'✓已授权' if is_granted else '✗未授权'}\n"
+                if not is_granted:
+                    all_granted = False
+
+            if all_granted:
+                status_text += "\n✓ 所有权限均已授权"
                 self.preview_label.text = status_text
+            else:
+                # 请求所有缺失的权限
+                missing_permissions = []
+                for perm in permissions:
+                    if not check_permission(perm):
+                        missing_permissions.append(perm)
+
+                if missing_permissions:
+                    status_text += "\n正在请求缺失权限..."
+                    self.preview_label.text = status_text
+
+                    # 定义回调函数处理权限请求结果
+                    def permission_callback(permissions_list, grant_results):
+                        granted_status = "权限请求结果:\n"
+                        for i, (perm, result) in enumerate(zip(permissions_list, grant_results)):
+                            perm_name = permission_names[i]
+                            granted_status += f"{perm_name}: {'✓成功' if result else '✗失败'}\n"
+
+                        granted_status += "\n请重启应用使权限生效或再次尝试"
+                        self.preview_label.text = granted_status
+
+                    # 请求权限
+                    request_permissions(missing_permissions, permission_callback)
         else:
             self.preview_label.text = "非Android环境，无需权限检查"
 
     def select_new_background(self, instance):
         """选择新背景图片"""
+        # 首先检查权限
+        if 'android' in sys.modules:
+            from android.permissions import check_permission, Permission
+
+            # 检查是否有必要权限
+            has_new_permissions = (
+                    hasattr(Permission, 'READ_MEDIA_IMAGES') and
+                    check_permission(Permission.READ_MEDIA_IMAGES)
+            )
+
+            has_old_permissions = (
+                check_permission(Permission.READ_EXTERNAL_STORAGE)
+            )
+
+            if not (has_new_permissions or has_old_permissions):
+                self.check_permissions(None)  # 先请求权限
+                self.preview_label.text = "请先授权存储权限，然后再次尝试选择图片"
+                return
+
         try:
             # 检查是否在Android环境下
             if 'android' in sys.modules:
-                # 导入Android相关模块
-                from android.permissions import request_permissions, Permission, check_permission
                 from android.storage import primary_external_storage_path
                 import os
 
-                # 检查并请求存储权限 - 支持Android 13+新权限模型
-                def check_and_request_permissions():
-                    # 根据Android版本选择合适的权限
-                    if hasattr(Permission, 'READ_MEDIA_IMAGES'):
-                        # Android 13+ 新权限模型
-                        permissions = [
-                            Permission.READ_MEDIA_IMAGES,  # 读取图片
-                            Permission.READ_MEDIA_VIDEO,   # 读取视频
-                            Permission.WRITE_EXTERNAL_STORAGE  # 写入权限
-                        ]
-                    else:
-                        # Android 12及以下使用传统权限
-                        permissions = [
-                            Permission.READ_EXTERNAL_STORAGE,
-                            Permission.WRITE_EXTERNAL_STORAGE
-                        ]
-                    
-                    # 检查权限状态
-                    missing_permissions = []
-                    for perm in permissions:
-                        if not check_permission(perm):
-                            missing_permissions.append(perm)
-
-                    # 如果权限缺失，请求它们
-                    if missing_permissions:
-                        print(f"正在请求权限: {missing_permissions}")
-                        request_permissions(missing_permissions)
-                        # 注意：request_permissions 是异步的，这里只是发起请求
-                        return False
-                    
-                    return True
-
-                # 尝试请求权限
-                if not check_and_request_permissions():
-                    print("权限请求中，请稍后再试")
-                    self.preview_label.text = "权限请求中，请稍后重试（如果长时间无响应，请手动授予存储权限）"
-                    return
-
-                # 使用Android专用的存储路径
+                # 获取存储路径 - 尝试多种方法
                 try:
                     storage_path = primary_external_storage_path()
                 except:
-                    # 如果无法获取专用路径，使用公共路径
+                    # 如果primary_external_storage_path失败，使用默认路径
                     storage_path = '/storage/emulated/0'
-                
+
                 # 尝试多个可能的图片路径
                 possible_paths = [
                     os.path.join(storage_path, 'Pictures'),
-                    os.path.join(storage_path, 'DCIM'),
-                    os.path.join(storage_path, 'Download'),
-                    storage_path
+                    os.path.join(storage_path, 'DCIM', 'Camera'),  # 相机照片
+                    os.path.join(storage_path, 'Downloads'),  # 下载文件夹
+                    os.path.join(storage_path, 'Photos'),  # 照片文件夹
+                    storage_path  # 根目录作为备选
                 ]
 
                 pictures_path = None
@@ -1879,54 +1878,49 @@ class ImagePage(BoxLayout):
                         break
 
                 if not pictures_path:
-                    pictures_path = storage_path  # 使用根目录作为备选
+                    pictures_path = storage_path  # 使用根目录作为最终备选
 
-                # 创建文件选择器，专门过滤图片文件
+                # 创建文件选择器
                 filechooser = FileChooserIconView(
                     filters=['*.png', '*.jpg', '*.jpeg', '*.gif', '*.bmp'],
                     path=pictures_path,
                     size_hint_y=0.9
                 )
             else:
-                # PC环境使用当前目录
-                import os  # 确保PC环境下也导入os
+                # PC环境
+                import os
                 filechooser = FileChooserIconView(
                     filters=['*.png', '*.jpg', '*.jpeg', '*.gif', '*.bmp'],
                     path='./',
                     size_hint_y=0.9
                 )
 
-            # 创建选择按钮
+            # 创建选择按钮和布局
             select_btn = Button(text='选择', size_hint_y=None, height=50)
-
-            # 创建布局
             layout = BoxLayout(orientation='vertical')
             layout.add_widget(filechooser)
             layout.add_widget(select_btn)
 
-            # 创建弹窗
             popup = Popup(title='选择背景图片', content=layout, size_hint=(0.9, 0.9))
 
-            # 修改这里的 load_image 函数，显式传入 os 模块
             def load_image(instance):
                 if filechooser.selection:
                     image_path = filechooser.selection[0]
 
                     # 验证文件是否存在且为图片格式
-                    import os  # 在函数内部显式导入，确保可访问
                     if os.path.isfile(image_path):
                         try:
                             # 设置背景图片
                             self.set_background_image(image_path)
                             self.parent_app.set_page_backgrounds_to_image(image_path)
-                            self.preview_label.text = f"已设置新背景"
-
-                            # 保存图片路径到配置（可选）
+                            self.preview_label.text = f"✓ 已设置新背景: {os.path.basename(image_path)}"
                             print(f"背景图片已设置: {image_path}")
 
+                            # 关闭弹窗
                             popup.dismiss()
                         except Exception as e:
                             self.preview_label.text = f"设置背景失败: {str(e)}"
+                            print(f"设置背景失败: {e}")
                     else:
                         self.preview_label.text = "选择的不是有效文件"
                 else:
@@ -1937,7 +1931,6 @@ class ImagePage(BoxLayout):
 
         except ImportError as e:
             # 如果Android模块不可用，显示错误信息
-            import os  # 确保在异常处理中也能访问os
             error_msg = f"无法访问文件选择器: {str(e)}"
             print(error_msg)
             self.preview_label.text = error_msg
@@ -1950,7 +1943,6 @@ class ImagePage(BoxLayout):
             )
             error_popup.open()
         except Exception as e:
-            import os  # 确保在异常处理中也能访问os
             error_msg = f"选择背景图片失败: {str(e)}"
             print(error_msg)
             self.preview_label.text = error_msg
