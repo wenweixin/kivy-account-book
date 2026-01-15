@@ -16,6 +16,7 @@ from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.popup import Popup
 from kivy.graphics import Triangle
 from kivy.uix.filechooser import FileChooserIconView
+from kivy.clock import Clock
 import math
 import json
 import os
@@ -1655,9 +1656,7 @@ class PieChartWidget(FloatLayout):
             self.add_widget(legend_label)
 
 
-# ... (前面的代码保持不变，直到ImagePage类)
-
-# 第六页：图片背景管理页面
+# 修改 ImagePage 类，添加内部图片选择功能
 class ImagePage(BoxLayout):
     def __init__(self, parent_app, **kwargs):
         super().__init__(**kwargs)
@@ -1668,6 +1667,15 @@ class ImagePage(BoxLayout):
 
         # 保存原始背景色
         self.original_background = BACKGROUND_COLOR
+
+        # 定义背景图片文件夹路径
+        self.backgrounds_folder = "backgrounds"
+
+        # 动态加载内置背景图片
+        self.builtin_backgrounds = self.load_builtin_backgrounds()
+
+        # 加载保存的背景设置
+        self.saved_background = self.load_saved_background()
 
         # 设置整体背景
         with self.canvas.before:
@@ -1690,7 +1698,7 @@ class ImagePage(BoxLayout):
         # 功能按钮区域
         button_layout = self.create_button_section()
         button_layout.size_hint_y = None
-        button_layout.height = 250  # 增加高度以容纳新增按钮
+        button_layout.height = 200  # 调整高度以适应按钮
         self.add_widget(button_layout)
 
         # 预览区域
@@ -1698,16 +1706,126 @@ class ImagePage(BoxLayout):
         preview_layout.size_hint_y = 0.6
         self.add_widget(preview_layout)
 
+    def load_builtin_backgrounds(self):
+        """动态加载 backgrounds 文件夹中的所有图片"""
+        backgrounds = []
+
+        # 检查背景文件夹是否存在
+        if os.path.exists(self.backgrounds_folder):
+            # 支持的图片格式
+            image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp']
+
+            # 获取文件夹中的所有图片文件
+            for filename in os.listdir(self.backgrounds_folder):
+                name, ext = os.path.splitext(filename.lower())
+                if ext in image_extensions:
+                    filepath = os.path.join(self.backgrounds_folder, filename)
+                    # 使用文件名（不含扩展名）作为显示名称
+                    display_name = name
+                    backgrounds.append((filepath, display_name))
+
+        # 如果没有找到内置背景，提供默认选项
+        if not backgrounds:
+            print(f"警告: 未在 '{self.backgrounds_folder}' 文件夹中找到图片")
+
+        return backgrounds
+
+    def save_background_setting(self, background_path):
+        """保存背景设置到文件"""
+        setting_data = {
+            'background_path': background_path,
+            'timestamp': datetime.now().isoformat()
+        }
+
+        # 使用与记账数据相同的存储路径
+        setting_file = os.path.join(os.path.dirname(DATA_FILE), "background_setting.json")
+
+        try:
+            with open(setting_file, 'w', encoding='utf-8') as f:
+                json.dump(setting_data, f, ensure_ascii=False, indent=2)
+            print(f"背景设置已保存: {background_path}")  # 添加调试信息
+        except Exception as e:
+            print(f"保存背景设置失败: {e}")
+
+    def load_saved_background(self):
+        """加载保存的背景设置"""
+        setting_file = os.path.join(os.path.dirname(DATA_FILE), "background_setting.json")
+
+        try:
+            if os.path.exists(setting_file):
+                with open(setting_file, 'r', encoding='utf-8') as f:
+                    setting_data = json.load(f)
+                    saved_path = setting_data.get('background_path')
+
+                    # 检查保存的路径是否仍然存在
+                    if saved_path and os.path.exists(saved_path):
+                        print(f"加载保存的背景路径: {saved_path}")  # 添加调试信息
+                        return saved_path
+                    else:
+                        print(f"保存的背景文件不存在: {saved_path}")  # 添加调试信息
+                        return None
+        except Exception as e:
+            print(f"加载背景设置失败: {e}")
+
+        return None
+
+    def apply_saved_background(self):
+        """应用保存的背景设置"""
+        if self.saved_background:
+            # 检查保存的路径是否真实存在
+            if os.path.exists(self.saved_background):
+                # 设置保存的背景图片
+                self.set_background_image(self.saved_background)
+                self.parent_app.set_page_backgrounds_to_image(self.saved_background)
+                self.preview_label.text = f"已应用保存的背景: {os.path.basename(self.saved_background)}"
+                print(f"应用背景成功: {self.saved_background}")
+            else:
+                print(f"保存的背景文件不存在，重置为默认: {self.saved_background}")
+                # 如果保存的图片不存在，重置为默认
+                self.reset_to_default_background()
+                # 清除无效的保存路径
+                self.clear_saved_background()
+        else:
+            # 如果没有保存的设置，使用默认背景
+            print("没有保存的背景设置，使用默认背景")
+            self.reset_to_default_background()
+
+    def reset_to_default_background(self):
+        """重置为默认背景"""
+        self.set_background_color(BACKGROUND_COLOR)
+        self.parent_app.set_page_backgrounds_to_color(BACKGROUND_COLOR)
+
+    def set_builtin_background(self, bg_file):
+        """设置内置背景图片"""
+        try:
+            if os.path.exists(bg_file):
+                # 设置内置背景图片
+                self.set_background_image(bg_file)
+                self.parent_app.set_page_backgrounds_to_image(bg_file)
+                self.preview_label.text = f"✓ 已设置内置背景: {os.path.basename(bg_file)}"
+
+                # 保存设置
+                self.save_background_setting(bg_file)
+                self.saved_background = bg_file
+
+                print(f"内置背景图片已设置: {bg_file}")
+            else:
+                self.preview_label.text = f"✗ 内置图片不存在: {bg_file}\n请检查文件路径"
+        except Exception as e:
+            error_msg = f"设置内置背景失败: {str(e)}"
+            print(error_msg)
+            self.preview_label.text = error_msg
+
     def create_button_section(self):
-        button_layout = GridLayout(cols=1, spacing=15, padding=10)
+        button_layout = GridLayout(cols=2, spacing=10, padding=10)
 
         # 还原原始背景按钮
         restore_btn = StyledButton(
             text="还原原始背景",
-            font_size=BUTTON_FONT_SIZE,
+            font_size=BUTTON_FONT_SIZE - 5,
             background_color=SUCCESS_COLOR,
             size_hint_y=None,
-            height=70,
+            height=60,
             font_name=DEFAULT_FONT
         )
         restore_btn.bind(on_press=self.restore_original_background)
@@ -1716,28 +1834,56 @@ class ImagePage(BoxLayout):
         # 权限检查按钮
         permission_btn = StyledButton(
             text="检查存储权限",
-            font_size=BUTTON_FONT_SIZE,
+            font_size=BUTTON_FONT_SIZE - 5,
             background_color=WARNING_COLOR,
             size_hint_y=None,
-            height=70,
+            height=60,
             font_name=DEFAULT_FONT
         )
         permission_btn.bind(on_press=self.check_permissions)
         button_layout.add_widget(permission_btn)
 
-        # 选择新背景按钮
-        select_btn = StyledButton(
-            text="选择新背景图片",
-            font_size=BUTTON_FONT_SIZE,
+        # 选择外部图片按钮
+        external_btn = StyledButton(
+            text="选择外部图片",
+            font_size=BUTTON_FONT_SIZE - 5,
             background_color=PRIMARY_COLOR,
             size_hint_y=None,
-            height=70,
+            height=60,
             font_name=DEFAULT_FONT
         )
-        select_btn.bind(on_press=self.select_new_background)
-        button_layout.add_widget(select_btn)
+        external_btn.bind(on_press=self.select_new_background)
+        button_layout.add_widget(external_btn)
+
+        # 选择内部图片按钮
+        internal_btn = StyledButton(
+            text="选择内部图片",
+            font_size=BUTTON_FONT_SIZE - 5,
+            background_color=PRIMARY_COLOR,
+            size_hint_y=None,
+            height=60,
+            font_name=DEFAULT_FONT
+        )
+        internal_btn.bind(on_press=self.select_internal_background)
+        button_layout.add_widget(internal_btn)
+
+        # 刷新按钮
+        refresh_btn = StyledButton(
+            text="刷新图片",
+            font_size=BUTTON_FONT_SIZE - 5,
+            background_color=TAB_BG_COLOR,
+            size_hint_y=None,
+            height=60,
+            font_name=DEFAULT_FONT
+        )
+        refresh_btn.bind(on_press=self.refresh_images)
+        button_layout.add_widget(refresh_btn)
 
         return button_layout
+
+    def refresh_images(self, instance):
+        """刷新图片列表"""
+        self.builtin_backgrounds = self.load_builtin_backgrounds()
 
     def create_preview_section(self):
         preview_layout = BoxLayout(padding=10)
@@ -1760,11 +1906,27 @@ class ImagePage(BoxLayout):
             self.set_background_color(self.original_background)
             self.parent_app.set_page_backgrounds_to_color(self.original_background)
 
+            # 删除保存的背景设置文件，确保下次启动时使用默认背景
+            self.clear_saved_background()
+
             self.preview_label.text = "已恢复原始背景颜色"
             print("已恢复原始背景颜色")
         except Exception as e:
             print(f"恢复背景失败: {e}")
             self.preview_label.text = f"恢复失败: {e}"
+
+    def clear_saved_background(self):
+        """清除保存的背景设置"""
+        setting_file = os.path.join(os.path.dirname(DATA_FILE), "background_setting.json")
+
+        try:
+            if os.path.exists(setting_file):
+                os.remove(setting_file)
+                print("已删除背景设置文件")
+            # 同时更新实例变量
+            self.saved_background = None
+        except Exception as e:
+            print(f"删除背景设置文件失败: {e}")
 
     def check_permissions(self, instance):
         """检查并请求存储权限"""
@@ -1890,7 +2052,7 @@ class ImagePage(BoxLayout):
                 # PC环境
                 import os
                 filechooser = FileChooserIconView(
-                    filters=['*.png', '*.jpg', '*.jpeg', '*.gif', '*.bmp'],
+                    filters=['*.png', '*.jpg', '.jpeg', '*.gif', '*.bmp'],
                     path='./',
                     size_hint_y=0.9
                 )
@@ -1914,9 +2076,11 @@ class ImagePage(BoxLayout):
                             self.set_background_image(image_path)
                             self.parent_app.set_page_backgrounds_to_image(image_path)
                             self.preview_label.text = f"✓ 已设置新背景: {os.path.basename(image_path)}"
-                            print(f"背景图片已设置: {image_path}")
 
-                            # 关闭弹窗
+                            # 保存设置 - 这里是关键：确保保存外部图片路径
+                            self.save_background_setting(image_path)
+                            self.saved_background = image_path  # 更新实例变量
+
                             popup.dismiss()
                         except Exception as e:
                             self.preview_label.text = f"设置背景失败: {str(e)}"
@@ -1944,6 +2108,62 @@ class ImagePage(BoxLayout):
             error_popup.open()
         except Exception as e:
             error_msg = f"选择背景图片失败: {str(e)}"
+            print(error_msg)
+            self.preview_label.text = error_msg
+
+    def select_internal_background(self, instance):
+        """选择内部背景图片（从backgrounds文件夹）"""
+        try:
+            # 检查backgrounds文件夹是否存在
+            if not os.path.exists(self.backgrounds_folder):
+                self.preview_label.text = f"backgrounds文件夹不存在: {self.backgrounds_folder}"
+                return
+
+            # 创建文件选择器，指定到backgrounds文件夹
+            filechooser = FileChooserIconView(
+                filters=['*.png', '*.jpg', '*.jpeg', '*.gif', '*.bmp'],
+                path=self.backgrounds_folder,  # 指定路径为backgrounds文件夹
+                size_hint_y=0.9
+            )
+
+            # 创建选择按钮和布局
+            select_btn = Button(text='选择', size_hint_y=None, height=50)
+            layout = BoxLayout(orientation='vertical')
+            layout.add_widget(filechooser)
+            layout.add_widget(select_btn)
+
+            popup = Popup(title='选择内部背景图片', content=layout, size_hint=(0.9, 0.9))
+
+            def load_image(instance):
+                if filechooser.selection:
+                    image_path = filechooser.selection[0]
+
+                    # 验证文件是否存在且为图片格式
+                    if os.path.isfile(image_path):
+                        try:
+                            # 设置背景图片
+                            self.set_background_image(image_path)
+                            self.parent_app.set_page_backgrounds_to_image(image_path)
+                            self.preview_label.text = f"✓ 已设置内部背景: {os.path.basename(image_path)}"
+
+                            # 保存设置
+                            self.save_background_setting(image_path)
+                            self.saved_background = image_path  # 更新实例变量
+
+                            popup.dismiss()
+                        except Exception as e:
+                            self.preview_label.text = f"设置背景失败: {str(e)}"
+                            print(f"设置背景失败: {e}")
+                    else:
+                        self.preview_label.text = "选择的不是有效文件"
+                else:
+                    self.preview_label.text = "未选择文件"
+
+            select_btn.bind(on_press=load_image)
+            popup.open()
+
+        except Exception as e:
+            error_msg = f"选择内部背景图片失败: {str(e)}"
             print(error_msg)
             self.preview_label.text = error_msg
 
@@ -1983,7 +2203,8 @@ class AdvancedAccountBookApp(App):
         self.records_page = RecordsPage(parent_app=self)
         self.statistics_page = StatisticsPage(parent_app=self)
         self.analysis_page = AnalysisPage(parent_app=self)
-        self.image_page = ImagePage(parent_app=self)  # 新增图片页面
+        self.image_page = ImagePage(parent_app=self)
+
 
         # 创建Tab项
         input_tab = TabbedPanelItem(text='记账')
@@ -2021,7 +2242,15 @@ class AdvancedAccountBookApp(App):
         # 将Tab面板添加到主布局
         main_layout.add_widget(tab_panel)
 
+        # 应用保存的背景设置
+        Clock.schedule_once(self.apply_saved_background_settings, 0.1)
+
         return main_layout
+
+    def apply_saved_background_settings(self, dt):
+        """应用保存的背景设置"""
+        if hasattr(self.image_page, 'apply_saved_background'):
+            self.image_page.apply_saved_background()
 
     def refresh_all_pages(self):
         """刷新所有页面的数据"""
@@ -2081,9 +2310,31 @@ class AdvancedAccountBookApp(App):
                     page.rect = Rectangle(size=page.size, pos=page.pos, source=image_path)
                     page.bind(size=page._update_rect, pos=page._update_rect)
 
+    def set_page_backgrounds_to_image(self, image_path):
+        """将第1、2、3、4、5页背景设置为指定图片"""
+        pages = [
+            self.input_page,
+            self.search_page,
+            self.records_page,
+            self.statistics_page,
+            self.analysis_page
+        ]
+
+        for page in pages:
+            if hasattr(page, 'canvas'):
+                with page.canvas.before:
+                    Color(1, 1, 1, 1)  # 白色背景以显示图片
+                    page.rect = Rectangle(size=page.size, pos=page.pos, source=image_path)
+                    page.bind(size=page._update_rect, pos=page._update_rect)
+
+        # 保存到应用实例，以便重启后使用
+        self.current_background_image = image_path
+
+
 
 if __name__ == "__main__":
     # 最终确保编码正确
     sys.stdout.reconfigure(encoding='utf-8')
 
     AdvancedAccountBookApp().run()
+
