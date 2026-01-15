@@ -166,14 +166,14 @@ jobs:
           echo "android.add_compile_options = --compile-options '-DANDROID_API=21'" >> buildozer.spec
           echo "android.add_gradle_repositories = https://maven.google.com" >> buildozer.spec
           
+          # 添加额外的Android manifest选项
+          echo "android.manifest_permissions = ['WRITE_EXTERNAL_STORAGE', 'READ_EXTERNAL_STORAGE', 'MANAGE_EXTERNAL_STORAGE']" >> buildozer.spec
+          
           # 内存优化
           echo "p4a.local_recipes = ./" >> buildozer.spec
           echo "p4a.concurrent_build = 1" >> buildozer.spec
           echo "p4a.javac_args = -J-Xmx4096m" >> buildozer.spec
           echo "p4a.ignore_setup_py = false" >> buildozer.spec
-          
-          # 添加额外的Android manifest选项
-          echo "android.manifest_permissions = ['WRITE_EXTERNAL_STORAGE', 'READ_EXTERNAL_STORAGE', 'MANAGE_EXTERNAL_STORAGE']" >> buildozer.spec
 
       - name: 构建APK
         run: |
