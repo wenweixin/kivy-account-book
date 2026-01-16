@@ -480,8 +480,8 @@ class InputPage(BoxLayout):
 
         # 绑定：控件高度变化时，字体大小自动设为控件高度的80%（可调整比例，比如0.3~0.5）
         def update_font_size(instance, value):
-            font_size_by_width = instance.width * 0.8  # 按宽度算的字号
-            font_size_by_height = instance.height * 0.8  # 按高度算的字号
+            font_size_by_width = instance.width * 0.2  # 按宽度算的字号
+            font_size_by_height = instance.height * 0.2  # 按高度算的字号
 
             instance.font_size = min(font_size_by_width, font_size_by_height)
 
@@ -572,8 +572,8 @@ class InputPage(BoxLayout):
         card_layout.add_widget(input_grid)
 
         def update_font_size_v2(instance, value):
-            font_size_by_width = instance.width * 0.8  # 按宽度算的字号
-            font_size_by_height = instance.height * 0.8  # 按高度算的字号
+            font_size_by_width = instance.width * 0.2  # 按宽度算的字号
+            font_size_by_height = instance.height * 0.2  # 按高度算的字号
 
             instance.font_size = min(font_size_by_width, font_size_by_height)
 
@@ -809,8 +809,8 @@ class InputPage(BoxLayout):
 
             # 绑定动态字体大小调整函数，类似create_input_section中的逻辑
             def update_placeholder_font_size(instance, value):
-                font_size_by_width = instance.width * 0.8  # 按宽度算的字号
-                font_size_by_height = instance.height * 0.8  # 按高度算的字号
+                font_size_by_width = instance.width * 0.2  # 按宽度算的字号
+                font_size_by_height = instance.height * 0.2  # 按高度算的字号
                 instance.font_size = min(font_size_by_width, font_size_by_height)
 
             # 绑定尺寸变化事件到标签
@@ -1491,8 +1491,8 @@ class AnalysisPage(BoxLayout):
 
             # 绑定动态字体大小调整函数
             def update_placeholder_font_size(instance, value):
-                font_size_by_width = instance.width * 0.8  # 按宽度算的字号
-                font_size_by_height = instance.height * 0.8  # 按高度算的字号
+                font_size_by_width = instance.width * 0.2  # 按宽度算的字号
+                font_size_by_height = instance.height * 0.2  # 按高度算的字号
                 instance.font_size = min(font_size_by_width, font_size_by_height)
 
             # 绑定尺寸变化事件到标签
@@ -1740,7 +1740,7 @@ class PieChartWidget(FloatLayout):
                 size_hint=(None, None),
                 width=item_width - color_block_size - 20,  # 按比例宽度
                 height=self.height * legend_height_ratio,  # 按比例高度
-                text_size=(item_width - color_block_size - 20, None) 
+                text_size=(item_width - color_block_size - 20, None)
             )
             # 绑定字体自动缩放
             legend_label.bind(height=update_all_font_size)
@@ -2301,8 +2301,8 @@ class AdvancedAccountBookApp(App):
 
         def update_font_size(instance, value):
             """通用字体大小调整函数 - 根据组件长宽的最小值缩放"""
-            font_size_by_width = instance.width * 0.8  # 按宽度算的字号
-            font_size_by_height = instance.height * 0.8  # 按高度算的字号
+            font_size_by_width = instance.width * 0.6  # 按宽度算的字号
+            font_size_by_height = instance.height * 0.6  # 按高度算的字号
             instance.font_size = min(font_size_by_width, font_size_by_height)
 
         # 创建Tab项
@@ -2431,8 +2431,8 @@ class AdvancedAccountBookApp(App):
 
 
 def update_all_font_size(instance, value):
-    font_size_by_width = instance.width * 0.6  # 按宽度算的字号
-    font_size_by_height = instance.height * 0.6  # 按高度算的字号
+    font_size_by_width = instance.width * 0.2  # 按宽度算的字号
+    font_size_by_height = instance.height * 0.2  # 按高度算的字号
 
     instance.font_size = min(font_size_by_width, font_size_by_height)
 
